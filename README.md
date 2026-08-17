@@ -11,6 +11,8 @@ without carrying over Godot scenes, nodes, RPCs, or package architecture.
 - Pure C# FOLLOW driving math with EditMode tests
 - macOS desktop first; Web clients and a Linux authoritative server are later
 - `MaximizedWindow` by default, ordinary `Windowed` fallback on affected Intel Macs
+- Auto-installed display safety guard with lightweight lifecycle diagnostics;
+  deep macOS monitoring remains external test tooling
 
 ## Commands
 
