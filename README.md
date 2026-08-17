@@ -48,3 +48,8 @@ project path. Restart Codex after changing MCP configuration.
 
 See [docs/GODOT_REFERENCE.md](docs/GODOT_REFERENCE.md) and the shared `.ai/`
 project context for the evidence and decision trail.
+
+Gate 2 is currently specified in
+[docs/MULTIPLAYER_ACCEPTANCE.md](docs/MULTIPLAYER_ACCEPTANCE.md). The
+specification must be accepted before a networking package is selected or
+installed.
