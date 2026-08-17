@@ -17,6 +17,12 @@ measurements, authority decisions, and licensed source assets. Rebuild GDScript,
 nodes, autoloads, RPCs, spawning, prediction plumbing, UI, shaders, scenes, and
 build configuration in Unity-native form.
 
+The accepted local Unity slice preserves the Godot presentation measurements:
+an `84` half-extent arena, `1` metre fine grid, `4` metre major grid, `42` metre
+orthographic view height, `1.55` vehicle collision radius, `2.2` vehicle mass,
+and the source background/grid/player palette. Unity's orthographic camera uses
+a half-height value, so Godot camera size `42` is represented as `21` in Unity.
+
 Do not rerun the dangerous Godot edge-to-edge, native fullscreen, ANGLE, or
 Vulkan probes. Their evidence is archived. Unity's presentation policy is
 `MaximizedWindow` by default, `Windowed` fallback, and no `FullScreenWindow` on

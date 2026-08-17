@@ -1,7 +1,9 @@
 {
   "name": "CarFight.Runtime",
   "rootNamespace": "CarFight",
-  "references": [],
+  "references": [
+    "Unity.InputSystem"
+  ],
   "includePlatforms": [],
   "excludePlatforms": [],
   "allowUnsafeCode": false,

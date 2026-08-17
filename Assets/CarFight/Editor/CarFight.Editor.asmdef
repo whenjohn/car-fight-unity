@@ -1,7 +1,9 @@
 {
   "name": "CarFight.Editor",
   "rootNamespace": "CarFight.Editor",
-  "references": [],
+  "references": [
+    "CarFight.Runtime"
+  ],
   "includePlatforms": [
     "Editor"
   ],
