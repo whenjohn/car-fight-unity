@@ -7,9 +7,9 @@ namespace CarFight.Driving
     [RequireComponent(typeof(Rigidbody), typeof(SphereCollider))]
     public sealed class LocalJeepController : MonoBehaviour
     {
-        public const float CollisionRadius = 1.55f;
-        public const float VehicleMass = 2.2f;
-        public const float PhysicsRate = 120f;
+        public const float CollisionRadius = VehiclePhysicsProfile.CollisionRadius;
+        public const float VehicleMass = VehiclePhysicsProfile.Mass;
+        public const float PhysicsRate = VehiclePhysicsProfile.PhysicsRate;
 
         [SerializeField] private Camera playerCamera;
         [SerializeField] private CursorIntentView cursorView;

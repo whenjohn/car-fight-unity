@@ -99,5 +99,29 @@ namespace CarFight.Tests.Driving
             Assert.That(result.State.PlanarVelocity.magnitude, Is.LessThan(12f));
             Assert.That(result.State.YawRate, Is.EqualTo(0f));
         }
+
+        [Test]
+        public void NextDriveTickPreservesARealCollisionImpulse()
+        {
+            LocalDriveState rebounding = new LocalDriveState(
+                Vector3.forward * 8f,
+                0f,
+                0f,
+                0f,
+                false,
+                0f,
+                true,
+                0f);
+            LocalDriveStepResult result = LocalDriveSimulation.Step(
+                rebounding,
+                Quaternion.identity,
+                new Vector2(0f, -FollowController.MaxDistance),
+                burst: false,
+                reverse: false,
+                grounded: true,
+                Delta);
+
+            Assert.That(result.State.PlanarVelocity.z, Is.GreaterThan(7.5f));
+        }
     }
 }

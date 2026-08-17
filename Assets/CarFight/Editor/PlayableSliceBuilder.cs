@@ -25,6 +25,7 @@ namespace CarFight.Editor
             Material grid = Material("GridGround", Shader.Find("CarFight/GridGround"), Color.white);
             Material wall = Material("ArenaWall", Shader.Find("Universal Render Pipeline/Lit"), Hex("596674"));
             Material jeep = Material("JeepGreen", Shader.Find("Universal Render Pipeline/Lit"), new Color(0.18f, 0.48f, 0.22f));
+            Material opponent = Material("JeepOrange", Shader.Find("Universal Render Pipeline/Lit"), Hex("ffb45e"));
             Material dark = Material("JeepDark", Shader.Find("Universal Render Pipeline/Lit"), new Color(0.055f, 0.075f, 0.095f));
             Material glass = Material("JeepGlass", Shader.Find("Universal Render Pipeline/Lit"), Hex("75b8c8"));
             Material cyan = Material("PlayerCyan", Shader.Find("Universal Render Pipeline/Unlit"), Hex("63d8ff"));
@@ -36,7 +37,28 @@ namespace CarFight.Editor
 
             ConfigureEnvironment();
             CreateArena(root.transform, grid, wall, physicsMaterial);
-            GameObject jeepRoot = CreateJeep(root.transform, jeep, dark, glass, cyan, physicsMaterial);
+            GameObject jeepRoot = CreateJeep(
+                "LocalJeep",
+                root.transform,
+                new Vector3(0f, VehiclePhysicsProfile.CollisionRadius, 0f),
+                Quaternion.identity,
+                jeep,
+                dark,
+                glass,
+                cyan,
+                physicsMaterial,
+                locallyControlled: true);
+            CreateJeep(
+                "CollisionJeep",
+                root.transform,
+                new Vector3(0f, VehiclePhysicsProfile.CollisionRadius, -10f),
+                Quaternion.Euler(0f, 180f, 0f),
+                opponent,
+                dark,
+                glass,
+                opponent,
+                physicsMaterial,
+                locallyControlled: false);
             Camera camera = CreateCamera(root.transform, jeepRoot.transform);
             CursorIntentView cursor = CreateCursor(root.transform, cyan, speed);
             jeepRoot.GetComponent<LocalJeepController>().Configure(camera, cursor, 1 << ArenaLayer);
@@ -124,32 +146,32 @@ namespace CarFight.Editor
         }
 
         private static GameObject CreateJeep(
+            string name,
             Transform parent,
+            Vector3 position,
+            Quaternion rotation,
             Material bodyMaterial,
             Material darkMaterial,
             Material glassMaterial,
             Material markerMaterial,
-            PhysicsMaterial physicsMaterial)
+            PhysicsMaterial physicsMaterial,
+            bool locallyControlled)
         {
-            GameObject root = new GameObject("LocalJeep");
+            GameObject root = new GameObject(name);
             root.transform.SetParent(parent);
-            root.transform.position = new Vector3(0f, LocalJeepController.CollisionRadius, 0f);
+            root.transform.SetPositionAndRotation(position, rotation);
 
             Rigidbody body = root.AddComponent<Rigidbody>();
-            body.mass = LocalJeepController.VehicleMass;
-            body.linearDamping = 0f;
-            body.angularDamping = 4.5f;
-            body.interpolation = RigidbodyInterpolation.Interpolate;
-            body.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
-            body.maxAngularVelocity = 12f;
+            VehiclePhysicsProfile.Configure(body);
             SphereCollider collider = root.AddComponent<SphereCollider>();
-            collider.radius = LocalJeepController.CollisionRadius;
+            collider.radius = VehiclePhysicsProfile.CollisionRadius;
             collider.material = physicsMaterial;
-            root.AddComponent<LocalJeepController>();
+            if (locallyControlled)
+                root.AddComponent<LocalJeepController>();
 
             GameObject visual = new GameObject("PrimitiveJeep");
             visual.transform.SetParent(root.transform);
-            visual.transform.localPosition = Vector3.down * LocalJeepController.CollisionRadius;
+            visual.transform.localPosition = Vector3.down * VehiclePhysicsProfile.CollisionRadius;
             CreateVisualBox("LowerBody", visual.transform, new Vector3(0f, 0.62f, 0f), new Vector3(1.72f, 0.52f, 2.85f), bodyMaterial);
             CreateVisualBox("Hood", visual.transform, new Vector3(0f, 0.86f, -0.84f), new Vector3(1.58f, 0.34f, 1.02f), bodyMaterial);
             CreateVisualBox("Cabin", visual.transform, new Vector3(0f, 1.18f, 0.32f), new Vector3(1.46f, 0.66f, 1.18f), bodyMaterial);
@@ -314,11 +336,7 @@ namespace CarFight.Editor
                 AssetDatabase.CreateAsset(material, path);
             }
 
-            material.dynamicFriction = 0f;
-            material.staticFriction = 0f;
-            material.bounciness = 0.18f;
-            material.frictionCombine = PhysicsMaterialCombine.Minimum;
-            material.bounceCombine = PhysicsMaterialCombine.Maximum;
+            VehiclePhysicsProfile.Configure(material);
             EditorUtility.SetDirty(material);
             return material;
         }

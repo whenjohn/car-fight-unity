@@ -21,6 +21,10 @@ without carrying over Godot scenes, nodes, RPCs, or package architecture.
 - Space: burst
 - Tab: reverse
 
+The stationary orange Jeep ten metres ahead is an equal-mass physics target for
+normal and burst-speed collision checks. It will move when struck; only the
+green Jeep reads local input.
+
 ## Commands
 
 ```sh
