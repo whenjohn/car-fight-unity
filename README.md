@@ -51,5 +51,5 @@ project context for the evidence and decision trail.
 
 Gate 2 is currently specified in
 [docs/MULTIPLAYER_ACCEPTANCE.md](docs/MULTIPLAYER_ACCEPTANCE.md). The
-specification must be accepted before a networking package is selected or
-installed.
+accepted networking comparison and FishNet selection are recorded in
+[docs/NETWORKING_COMPARISON.md](docs/NETWORKING_COMPARISON.md).

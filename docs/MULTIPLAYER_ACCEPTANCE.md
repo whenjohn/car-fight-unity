@@ -1,6 +1,7 @@
 # Gate 2 multiplayer acceptance specification
 
-Status: draft for review. No networking package has been selected.
+Status: accepted on 2026-08-17. FishNet `4.7.2` is selected for the proof; the
+acceptance outcomes remain framework-independent.
 
 ## Purpose
 
