@@ -2,7 +2,8 @@
   "name": "CarFight.Runtime",
   "rootNamespace": "CarFight",
   "references": [
-    "Unity.InputSystem"
+    "Unity.InputSystem",
+    "FishNet.Runtime"
   ],
   "includePlatforms": [],
   "excludePlatforms": [],
