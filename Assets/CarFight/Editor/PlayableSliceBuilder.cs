@@ -1,6 +1,8 @@
 using System.IO;
 using CarFight.Driving;
+using CarFight.Networking.Runtime;
 using CarFight.Presentation;
+using FishNet.Object;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -48,7 +50,7 @@ namespace CarFight.Editor
                 cyan,
                 physicsMaterial,
                 locallyControlled: true);
-            CreateJeep(
+            GameObject collisionRoot = CreateJeep(
                 "CollisionJeep",
                 root.transform,
                 new Vector3(0f, VehiclePhysicsProfile.CollisionRadius, -10f),
@@ -64,6 +66,13 @@ namespace CarFight.Editor
             jeepRoot.GetComponent<LocalJeepController>().Configure(camera, cursor, 1 << ArenaLayer);
             CreateLight(root.transform);
 
+            EditorSceneManager.SaveScene(scene, ScenePath);
+            ConfigurePrediction(
+                jeepRoot.GetComponent<NetworkObject>(),
+                jeepRoot.transform.Find("PrimitiveJeep"));
+            ConfigurePrediction(
+                collisionRoot.GetComponent<NetworkObject>(),
+                collisionRoot.transform.Find("PrimitiveJeep"));
             EditorSceneManager.SaveScene(scene, ScenePath);
             EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };
             AssetDatabase.SaveAssets();
@@ -166,6 +175,8 @@ namespace CarFight.Editor
             SphereCollider collider = root.AddComponent<SphereCollider>();
             collider.radius = VehiclePhysicsProfile.CollisionRadius;
             collider.material = physicsMaterial;
+            root.AddComponent<NetworkObject>();
+            root.AddComponent<NetworkJeepController>();
             if (locallyControlled)
                 root.AddComponent<LocalJeepController>();
 
@@ -191,6 +202,17 @@ namespace CarFight.Editor
             pip.GetComponent<MeshRenderer>().sharedMaterial = markerMaterial;
             Object.DestroyImmediate(pip.GetComponent<Collider>());
             return root;
+        }
+
+        private static void ConfigurePrediction(NetworkObject networkObject, Transform graphicalObject)
+        {
+            SerializedObject serialized = new SerializedObject(networkObject);
+            serialized.FindProperty("_enablePrediction").boolValue = true;
+            serialized.FindProperty("_predictionType").intValue = 1;
+            serialized.FindProperty("_enableStateForwarding").boolValue = false;
+            serialized.FindProperty("_graphicalObject").objectReferenceValue = graphicalObject;
+            serialized.FindProperty("_detachGraphicalObject").boolValue = true;
+            serialized.ApplyModifiedPropertiesWithoutUndo();
         }
 
         private static Camera CreateCamera(Transform parent, Transform target)

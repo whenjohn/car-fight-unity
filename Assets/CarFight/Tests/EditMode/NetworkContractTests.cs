@@ -199,6 +199,54 @@ namespace CarFight.Tests.Networking
             Assert.That(result.PlanarSpeedDifference, Is.EqualTo(2f).Within(Tolerance));
         }
 
+        [Test]
+        public void RemotePresentationUsesFixedSeventyFiveMillisecondDelay()
+        {
+            Assert.That(PredictionPresentationRules.PresentationDelayTicks, Is.EqualTo(9));
+            Assert.That(PredictionPresentationRules.RenderTick(100), Is.EqualTo(91));
+            Assert.That(PredictionPresentationRules.PresentationDelayMilliseconds, Is.EqualTo(75f));
+        }
+
+        [Test]
+        public void RemotePresentationInterpolatesBetweenSettledSnapshots()
+        {
+            AuthoritativeVehicleSnapshot older = Snapshot(
+                tick: 100,
+                position: Vector3.zero,
+                rotation: Quaternion.identity,
+                linearVelocity: new Vector3(1f, 0f, 0f));
+            AuthoritativeVehicleSnapshot newer = Snapshot(
+                tick: 104,
+                position: new Vector3(4f, 0f, 0f),
+                rotation: Quaternion.Euler(0f, 90f, 0f),
+                linearVelocity: new Vector3(1f, 0f, 0f));
+
+            RemotePresentationSample sample = PredictionPresentationRules.Sample(older, newer, 102);
+
+            Assert.That(sample.Mode, Is.EqualTo(RemotePresentationMode.Interpolate));
+            Assert.That(sample.Position.x, Is.EqualTo(2f).Within(Tolerance));
+            Assert.That(sample.SnapshotAgeMilliseconds, Is.EqualTo(1000f / 60f).Within(Tolerance));
+        }
+
+        [Test]
+        public void RemotePresentationExtrapolatesBrieflyThenHolds()
+        {
+            AuthoritativeVehicleSnapshot older = Snapshot(tick: 100);
+            AuthoritativeVehicleSnapshot newer = Snapshot(
+                tick: 104,
+                position: new Vector3(4f, 0f, 0f),
+                linearVelocity: new Vector3(12f, 0f, 0f));
+
+            RemotePresentationSample extrapolated = PredictionPresentationRules.Sample(older, newer, 110);
+            RemotePresentationSample held = PredictionPresentationRules.Sample(older, newer, 117);
+
+            Assert.That(extrapolated.Mode, Is.EqualTo(RemotePresentationMode.Extrapolate));
+            Assert.That(extrapolated.Position.x, Is.EqualTo(4.6f).Within(Tolerance));
+            Assert.That(held.Mode, Is.EqualTo(RemotePresentationMode.Hold));
+            Assert.That(held.Position, Is.EqualTo(newer.Position));
+            Assert.That(PredictionPresentationRules.MaximumCorrectionPerUpdate, Is.EqualTo(0.25f));
+        }
+
         private static VehicleInputCommand Command(
             uint session,
             uint sequence,

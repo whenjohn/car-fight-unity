@@ -2,7 +2,8 @@
   "name": "CarFight.Editor",
   "rootNamespace": "CarFight.Editor",
   "references": [
-    "CarFight.Runtime"
+    "CarFight.Runtime",
+    "FishNet.Runtime"
   ],
   "includePlatforms": [
     "Editor"

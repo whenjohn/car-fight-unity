@@ -17,25 +17,9 @@ namespace CarFight.Networking.Runtime
         public uint SessionGeneration;
     }
 
-    public struct VehicleInputMessage : IBroadcast
+    public struct PredictionReadyMessage : IBroadcast
     {
-        public uint SessionGeneration;
-        public uint Sequence;
-        public uint ClientSimulationTick;
-        public Vector2 CursorOffset;
-        public bool Burst;
-        public bool Reverse;
-
-        public VehicleInputCommand ToCommand()
-        {
-            return new VehicleInputCommand(
-                SessionGeneration,
-                Sequence,
-                ClientSimulationTick,
-                CursorOffset,
-                Burst,
-                Reverse);
-        }
+        public string RunId;
     }
 
     public struct VehicleSnapshotWire
@@ -98,6 +82,12 @@ namespace CarFight.Networking.Runtime
         public string RunId;
         public string ClientName;
         public uint LastSnapshotTick;
+        public float MaximumRawError;
+        public float MaximumVisualCorrection;
+        public uint ReplayCount;
+        public float FinalPositionError;
+        public float FinalYawError;
+        public float FinalPlanarSpeedError;
     }
 
     public struct ScenarioCompleteMessage : IBroadcast
