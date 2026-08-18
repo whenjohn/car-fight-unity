@@ -22,6 +22,18 @@ namespace CarFight.Networking.Runtime
         public string RunId;
     }
 
+    public struct AllPlayersReadyMessage : IBroadcast
+    {
+        public string RunId;
+        public bool Ready;
+    }
+
+    public struct ClientReadyMessage : IBroadcast
+    {
+        public string RunId;
+        public string ClientName;
+    }
+
     public struct VehicleSnapshotWire
     {
         public uint ServerSimulationTick;
@@ -88,6 +100,15 @@ namespace CarFight.Networking.Runtime
         public float FinalPositionError;
         public float FinalYawError;
         public float FinalPlanarSpeedError;
+    }
+
+    public struct InvalidAuthorityRequestMessage : IBroadcast
+    {
+        public string RunId;
+        public uint ClaimedVehicleId;
+        public uint ClaimedSessionGeneration;
+        public Vector3 ClaimedPosition;
+        public Vector3 ClaimedLinearVelocity;
     }
 
     public struct ScenarioCompleteMessage : IBroadcast

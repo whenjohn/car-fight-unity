@@ -14,6 +14,15 @@ typeset -g CF_RUN_ID=""
 typeset -g CF_PORT_LOCK_ROOT=""
 typeset -g CF_PORT_LOCK=""
 typeset -g CF_PORT=""
+typeset -g CF_ALPHA_PORT=""
+typeset -g CF_BRAVO_PORT=""
+typeset -g CF_SCENARIO="baseline"
+typeset -g CF_LATENCY_MS=0
+typeset -g CF_JITTER_MS=0
+typeset -g CF_LOSS_PERCENT=0
+typeset -g CF_USE_PROXY=0
+typeset -g CF_PROXY_PID=""
+typeset -g CF_PROXY_STATUS=""
 typeset -g CF_STARTED_AT=""
 typeset -g CF_STARTED_SECONDS=0
 typeset -g CF_SERVER_PID=""
@@ -83,13 +92,13 @@ cf_write_run_json() {
   {
     printf '{\n'
     printf '  "runId": '; cf_json_string "$CF_RUN_ID"; printf ',\n'
-    printf '  "scenario": "baseline",\n'
+    printf '  "scenario": '; cf_json_string "$CF_SCENARIO"; printf ',\n'
     printf '  "startedAtUtc": '; cf_json_string "$CF_STARTED_AT"; printf ',\n'
     printf '  "git": {"revision": '; cf_json_string "$revision"; printf ', "dirty": %s},\n' "$dirty"
     printf '  "build": {"executable": '; cf_json_string "$CF_PLAYER"; printf ', "sha256": '; cf_json_string "$build_hash"; printf ', "sizeBytes": '; cf_json_number_or_null "$build_size"; printf '},\n'
     printf '  "seed": %s,\n' "$CF_SEED"
     printf '  "port": '; cf_json_number_or_null "$CF_PORT"; printf ',\n'
-    printf '  "impairment": {"mode": "none", "latencyMs": 0, "jitterMs": 0, "lossPercent": 0},\n'
+    printf '  "impairment": {"mode": '; cf_json_string "$CF_SCENARIO"; printf ', "latencyMs": %s, "jitterMs": %s, "lossPercent": %s, "alphaPort": %s, "bravoPort": %s},\n' "$CF_LATENCY_MS" "$CF_JITTER_MS" "$CF_LOSS_PERCENT" "$CF_ALPHA_PORT" "$CF_BRAVO_PORT"
     printf '  "arguments": {\n'
     printf '    "server": '; cf_json_array "$CF_PLAYER" "${CF_SERVER_ARGS[@]}"; printf ',\n'
     printf '    "alpha": '; cf_json_array "$CF_PLAYER" "${CF_ALPHA_ARGS[@]}"; printf ',\n'
@@ -98,7 +107,8 @@ cf_write_run_json() {
     printf '  "processes": {\n'
     printf '    "server": {"pid": '; cf_json_number_or_null "$CF_SERVER_PID"; printf ', "exitStatus": '; cf_json_number_or_null "$CF_SERVER_STATUS"; printf '},\n'
     printf '    "alpha": {"pid": '; cf_json_number_or_null "$CF_ALPHA_PID"; printf ', "exitStatus": '; cf_json_number_or_null "$CF_ALPHA_STATUS"; printf '},\n'
-    printf '    "bravo": {"pid": '; cf_json_number_or_null "$CF_BRAVO_PID"; printf ', "exitStatus": '; cf_json_number_or_null "$CF_BRAVO_STATUS"; printf '}\n'
+    printf '    "bravo": {"pid": '; cf_json_number_or_null "$CF_BRAVO_PID"; printf ', "exitStatus": '; cf_json_number_or_null "$CF_BRAVO_STATUS"; printf '},\n'
+    printf '    "impairmentProxy": {"pid": '; cf_json_number_or_null "$CF_PROXY_PID"; printf ', "exitStatus": '; cf_json_number_or_null "$CF_PROXY_STATUS"; printf '}\n'
     printf '  }\n'
     printf '}\n'
   } > "$temporary"
@@ -158,13 +168,20 @@ cf_reserve_port() {
       fi
     fi
 
-    if lsof -nP -iUDP:"$candidate" >/dev/null 2>&1; then
+    local alpha_candidate=$((candidate + 500))
+    local bravo_candidate=$((candidate + 1000))
+    if (( bravo_candidate > 65535 )) ||
+       lsof -nP -iUDP:"$candidate" >/dev/null 2>&1 ||
+       lsof -nP -iUDP:"$alpha_candidate" >/dev/null 2>&1 ||
+       lsof -nP -iUDP:"$bravo_candidate" >/dev/null 2>&1; then
       rmdir "$lock"
       continue
     fi
 
     printf '%s %s\n' "$$" "$CF_RUN_ID" > "$lock/owner"
     CF_PORT="$candidate"
+    CF_ALPHA_PORT="$alpha_candidate"
+    CF_BRAVO_PORT="$bravo_candidate"
     CF_PORT_LOCK="$lock"
     return 0
   done
@@ -207,6 +224,7 @@ cf_cleanup() {
   cf_stop_exact_process "$CF_ALPHA_PID"
   cf_stop_exact_process "$CF_BRAVO_PID"
   cf_stop_exact_process "$CF_SERVER_PID"
+  cf_stop_exact_process "$CF_PROXY_PID"
   cf_release_port
 }
 
@@ -233,6 +251,29 @@ cf_wait_for_event() {
   return 1
 }
 
+cf_wait_for_pattern() {
+  local log_file="$1"
+  local pattern="$2"
+  local exact_pid="$3"
+  local timeout_seconds="$4"
+  local deadline=$((SECONDS + timeout_seconds))
+  CF_WAIT_REASON=""
+
+  while (( SECONDS < deadline )); do
+    if rg -q "$pattern" "$log_file" 2>/dev/null; then
+      return 0
+    fi
+    if ! kill -0 "$exact_pid" 2>/dev/null; then
+      CF_WAIT_REASON="process_exited_before_pattern"
+      return 1
+    fi
+    sleep 0.1
+  done
+
+  CF_WAIT_REASON="launcher_timeout_waiting_for_pattern"
+  return 1
+}
+
 cf_wait_for_all_processes() {
   local timeout_seconds="$1"
   local deadline=$((SECONDS + timeout_seconds))
@@ -256,6 +297,11 @@ cf_collect_statuses() {
   CF_BRAVO_STATUS=$?
   wait "$CF_SERVER_PID"
   CF_SERVER_STATUS=$?
+  if [[ -n "$CF_PROXY_PID" ]]; then
+    kill "$CF_PROXY_PID" 2>/dev/null || true
+    wait "$CF_PROXY_PID"
+    CF_PROXY_STATUS=$?
+  fi
   set -e
   cf_write_run_json
 }
@@ -306,7 +352,12 @@ cf_validate_results() {
     fi
   done
 
-  if [[ "$CF_SERVER_STATUS" != 0 || "$CF_ALPHA_STATUS" != 0 || "$CF_BRAVO_STATUS" != 0 ]]; then
+  local alpha_status_ok=0
+  if [[ "$CF_ALPHA_STATUS" == 0 ||
+        ("$CF_SCENARIO" == "stall" && "$CF_ALPHA_STATUS" == 145) ]]; then
+    alpha_status_ok=1
+  fi
+  if [[ "$CF_SERVER_STATUS" != 0 || "$alpha_status_ok" != 1 || "$CF_BRAVO_STATUS" != 0 ]]; then
     CF_VALIDATION_REASON="nonzero_process_exit"
     return 1
   fi
@@ -319,14 +370,75 @@ cf_validate_results() {
     CF_VALIDATION_REASON="client_contact_evidence_missing"
     return 1
   fi
+  case "$CF_SCENARIO" in
+    late_join)
+      if ! rg -q 'event=LATE_JOIN_READY.*vehicles=2' "$CF_RUN_DIR/bravo.log"; then
+        CF_VALIDATION_REASON="late_join_evidence_missing"
+        return 1
+      fi
+      ;;
+    reconnect)
+      if [[ "$(rg -c 'event=OWNERSHIP_ASSIGNED.*name=bravo' "$CF_RUN_DIR/server.log")" -lt 2 ]] ||
+         ! rg -q 'event=SESSION_RELEASED.*name=bravo' "$CF_RUN_DIR/server.log" ||
+         ! rg -q 'event=RECONNECT_LAUNCHED' "$CF_RUN_DIR/harness.log"; then
+        CF_VALIDATION_REASON="reconnect_evidence_missing"
+        return 1
+      fi
+      ;;
+    invalid_authority)
+      if ! rg -q 'event=INVALID_AUTHORITY_SENT' "$CF_RUN_DIR/bravo.log" ||
+         ! rg -q 'event=INVALID_AUTHORITY_REJECTED.*foreign=1.*authority_changed=0' "$CF_RUN_DIR/server.log" ||
+         ! rg -q 'event=INPUT_ACCEPTED.*vehicle=2' "$CF_RUN_DIR/server.log"; then
+        CF_VALIDATION_REASON="invalid_authority_positive_control_missing"
+        return 1
+      fi
+      ;;
+    stall)
+      if [[ "$(rg -c 'event=STALE_HISTORY_SKIPPED' "$CF_RUN_DIR/alpha.log")" -ne 1 ]] ||
+         ! rg -q 'event=STALL_RECOVERY_COMPLETE' "$CF_RUN_DIR/alpha.log" ||
+         ! rg -q 'event=CLIENT_STALLED.*duration_ms=1500' "$CF_RUN_DIR/harness.log"; then
+        CF_VALIDATION_REASON="stall_recovery_evidence_missing"
+        return 1
+      fi
+      ;;
+  esac
+  if [[ -n "$CF_PROXY_PID" ]]; then
+    if [[ "$CF_PROXY_STATUS" != 0 ]] ||
+       ! rg -q 'event=PROXY_COUNTERS.*forwarded=[1-9][0-9]*' "$CF_RUN_DIR/proxy.log"; then
+      CF_VALIDATION_REASON="impairment_counter_missing"
+      return 1
+    fi
+    if (( CF_LATENCY_MS > 0 )) &&
+       ! rg -q 'event=PROXY_COUNTERS.*delayed=[1-9][0-9]*' "$CF_RUN_DIR/proxy.log"; then
+      CF_VALIDATION_REASON="delay_positive_control_missing"
+      return 1
+    fi
+    if (( CF_LOSS_PERCENT > 0 )) &&
+       ! rg -q 'event=PROXY_COUNTERS.*dropped=[1-9][0-9]*' "$CF_RUN_DIR/proxy.log"; then
+      CF_VALIDATION_REASON="loss_positive_control_missing"
+      return 1
+    fi
+    if (( CF_JITTER_MS > 0 )) &&
+       ! rg -q 'event=PROXY_COUNTERS.*reordered=[1-9][0-9]*' "$CF_RUN_DIR/proxy.log"; then
+      CF_VALIDATION_REASON="reorder_positive_control_missing"
+      return 1
+    fi
+  fi
   return 0
 }
 
 cf_multiplayer_main() {
-  if [[ "$#" -ne 1 || "$1" != "baseline" ]]; then
-    printf 'usage: ./scripts/multiplayer_test.sh baseline\n' >&2
+  if [[ "$#" -ne 1 || "$1" != (baseline|latency|jitter|loss|late_join|reconnect|invalid_authority|stall) ]]; then
+    printf 'usage: ./scripts/multiplayer_test.sh baseline|latency|jitter|loss|late_join|reconnect|invalid_authority|stall\n' >&2
     return 2
   fi
+  CF_SCENARIO="$1"
+  case "$CF_SCENARIO" in
+    latency) CF_LATENCY_MS=120; CF_USE_PROXY=1 ;;
+    jitter) CF_LATENCY_MS=120; CF_JITTER_MS=30; CF_USE_PROXY=1 ;;
+    loss) CF_LATENCY_MS=120; CF_LOSS_PERCENT=5; CF_USE_PROXY=1 ;;
+    stall) CF_LATENCY_MS=120; CF_USE_PROXY=1 ;;
+  esac
 
   CF_PROJECT_ROOT="$(cd "$(dirname "$CF_LAUNCHER_LIBRARY_PATH")/../.." && pwd)"
   CF_PLAYER="${CAR_FIGHT_PLAYER:-$CF_PROJECT_ROOT/Build/CarFight.app/Contents/MacOS/Car Fight}"
@@ -349,10 +461,34 @@ cf_multiplayer_main() {
     return $?
   fi
 
-  CF_SERVER_ARGS=(-batchmode -nographics -logFile - --server --port "$CF_PORT" --run-id "$CF_RUN_ID")
-  CF_ALPHA_ARGS=(-batchmode -nographics -logFile - --client --host 127.0.0.1 --port "$CF_PORT" --name alpha --script converge --run-id "$CF_RUN_ID")
-  CF_BRAVO_ARGS=(-batchmode -nographics -logFile - --client --host 127.0.0.1 --port "$CF_PORT" --name bravo --script converge --run-id "$CF_RUN_ID")
+  local alpha_connect_port="$CF_PORT"
+  local bravo_connect_port="$CF_PORT"
+  if (( CF_USE_PROXY )); then
+    alpha_connect_port="$CF_ALPHA_PORT"
+    bravo_connect_port="$CF_BRAVO_PORT"
+  fi
+  CF_SERVER_ARGS=(-batchmode -nographics -logFile - --server --port "$CF_PORT" --scenario "$CF_SCENARIO" --run-id "$CF_RUN_ID")
+  CF_ALPHA_ARGS=(-batchmode -nographics -logFile - --client --host 127.0.0.1 --port "$alpha_connect_port" --name alpha --script converge --scenario "$CF_SCENARIO" --network-delay-ms "$CF_LATENCY_MS" --run-id "$CF_RUN_ID")
+  CF_BRAVO_ARGS=(-batchmode -nographics -logFile - --client --host 127.0.0.1 --port "$bravo_connect_port" --name bravo --script converge --scenario "$CF_SCENARIO" --network-delay-ms "$CF_LATENCY_MS" --run-id "$CF_RUN_ID")
   cf_write_run_json
+
+  if (( CF_USE_PROXY )); then
+    "$CF_PROJECT_ROOT/scripts/udp_impairment.py" \
+      --server-port "$CF_PORT" \
+      --alpha-port "$CF_ALPHA_PORT" \
+      --bravo-port "$CF_BRAVO_PORT" \
+      --latency-ms "$CF_LATENCY_MS" \
+      --jitter-ms "$CF_JITTER_MS" \
+      --loss-percent "$CF_LOSS_PERCENT" \
+      --seed "$CF_SEED" \
+      --run-id "$CF_RUN_ID" > "$CF_RUN_DIR/proxy.log" 2>&1 &
+    CF_PROXY_PID=$!
+    cf_write_run_json
+    if ! cf_wait_for_event "$CF_RUN_DIR/proxy.log" PROXY_READY "$CF_PROXY_PID" 5; then
+      cf_fail_infrastructure "$CF_WAIT_REASON"
+      return $?
+    fi
+  fi
 
   "$CF_PLAYER" "${CF_SERVER_ARGS[@]}" > "$CF_RUN_DIR/server.log" 2>&1 &
   CF_SERVER_PID=$!
@@ -371,6 +507,14 @@ cf_multiplayer_main() {
     return $?
   fi
 
+  if [[ "$CF_SCENARIO" == "late_join" ]]; then
+    if ! cf_wait_for_event "$CF_RUN_DIR/alpha.log" PREDICTION_READY "$CF_ALPHA_PID" 10 ||
+       ! cf_wait_for_pattern "$CF_RUN_DIR/server.log" 'event=INPUT_ACCEPTED.*vehicle=1' "$CF_SERVER_PID" 10; then
+      cf_fail_infrastructure "$CF_WAIT_REASON"
+      return $?
+    fi
+  fi
+
   "$CF_PLAYER" "${CF_BRAVO_ARGS[@]}" > "$CF_RUN_DIR/bravo.log" 2>&1 &
   CF_BRAVO_PID=$!
   cf_write_run_json
@@ -380,7 +524,56 @@ cf_multiplayer_main() {
     return $?
   fi
 
-  if ! cf_wait_for_all_processes 35; then
+
+  if [[ "$CF_SCENARIO" == "reconnect" ]]; then
+    if ! cf_wait_for_pattern "$CF_RUN_DIR/server.log" 'event=INPUT_ACCEPTED.*vehicle=2' "$CF_SERVER_PID" 10; then
+      cf_fail_infrastructure "$CF_WAIT_REASON"
+      return $?
+    fi
+    local initial_bravo_pid="$CF_BRAVO_PID"
+    if ! cf_pid_matches_run "$initial_bravo_pid"; then
+      cf_fail_infrastructure "bravo_pid_identity_lost"
+      return $?
+    fi
+    kill "$initial_bravo_pid" 2>/dev/null || true
+    wait "$initial_bravo_pid" 2>/dev/null || true
+    mv "$CF_RUN_DIR/bravo.log" "$CF_RUN_DIR/bravo-initial.log"
+    if ! cf_wait_for_pattern "$CF_RUN_DIR/server.log" 'event=SESSION_RELEASED.*name=bravo' "$CF_SERVER_PID" 5; then
+      cf_fail_infrastructure "$CF_WAIT_REASON"
+      return $?
+    fi
+    printf 'CF_HARNESS event=RECONNECT_LAUNCHED prior_pid=%s\n' "$initial_bravo_pid" > "$CF_RUN_DIR/harness.log"
+    "$CF_PLAYER" "${CF_BRAVO_ARGS[@]}" > "$CF_RUN_DIR/bravo.log" 2>&1 &
+    CF_BRAVO_PID=$!
+    cf_write_run_json
+    if ! cf_wait_for_event "$CF_RUN_DIR/bravo.log" OWNERSHIP_ASSIGNED "$CF_BRAVO_PID" 10 ||
+       ! cf_wait_for_event "$CF_RUN_DIR/bravo.log" FIRST_COMPLETE_SNAPSHOT "$CF_BRAVO_PID" 10; then
+      cf_fail_infrastructure "$CF_WAIT_REASON"
+      return $?
+    fi
+  fi
+
+  if [[ "$CF_SCENARIO" == "stall" ]]; then
+    if ! cf_wait_for_event "$CF_RUN_DIR/alpha.log" INPUT_SENT "$CF_ALPHA_PID" 10 ||
+       ! cf_wait_for_event "$CF_RUN_DIR/bravo.log" INPUT_SENT "$CF_BRAVO_PID" 10; then
+      cf_fail_infrastructure "$CF_WAIT_REASON"
+      return $?
+    fi
+    if ! cf_pid_matches_run "$CF_ALPHA_PID"; then
+      cf_fail_infrastructure "alpha_pid_identity_lost"
+      return $?
+    fi
+    kill -STOP "$CF_ALPHA_PID"
+    sleep 1.5
+    kill -CONT "$CF_ALPHA_PID"
+    printf 'CF_HARNESS event=CLIENT_STALLED name=alpha duration_ms=1500\n' > "$CF_RUN_DIR/harness.log"
+  fi
+
+  local process_timeout=35
+  if [[ "$CF_SCENARIO" != "baseline" ]]; then
+    process_timeout=60
+  fi
+  if ! cf_wait_for_all_processes "$process_timeout"; then
     cf_fail_infrastructure "$CF_WAIT_REASON"
     return $?
   fi
@@ -390,9 +583,9 @@ cf_multiplayer_main() {
     return $?
   fi
 
-  cf_write_result_json "passed" "gameplay" "baseline_complete"
+  cf_write_result_json "passed" "gameplay" "${CF_SCENARIO}_complete"
   cf_release_port
   CF_PORT_LOCK=""
-  printf 'CF_LAUNCHER result=passed scenario=baseline port=%s run_id=%s logs=%s\n' "$CF_PORT" "$CF_RUN_ID" "$CF_RUN_DIR"
+  printf 'CF_LAUNCHER result=passed scenario=%s port=%s run_id=%s logs=%s\n' "$CF_SCENARIO" "$CF_PORT" "$CF_RUN_ID" "$CF_RUN_DIR"
   return "$CF_SUCCESS_EXIT"
 }

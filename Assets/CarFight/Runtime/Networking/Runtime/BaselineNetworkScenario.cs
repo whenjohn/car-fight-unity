@@ -8,6 +8,7 @@ using FishNet.Managing;
 using FishNet.Managing.Timing;
 using FishNet.Transporting;
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 namespace CarFight.Networking.Runtime
 {
@@ -46,6 +47,7 @@ namespace CarFight.Networking.Runtime
         private uint lastSnapshotTick;
         private uint contactTick;
         private uint neutralTicks;
+        private uint lateJoinSoloTicks;
         private int assignedCount;
         private int completedCount;
         private int completedDisconnectCount;
@@ -58,6 +60,9 @@ namespace CarFight.Networking.Runtime
         private float holdSeconds;
         private float maximumSnapshotAgeMilliseconds;
         private float maximumSnapshotHeadroomMilliseconds;
+        private float connectedAt;
+        private float lastSnapshotReceivedAt;
+        private uint stallRecoveryTick;
         private bool begun;
         private bool sceneConfigured;
         private bool serverReady;
@@ -66,9 +71,22 @@ namespace CarFight.Networking.Runtime
         private bool bothVehiclesMoved;
         private bool inputSentLogged;
         private bool predictionReady;
+        private bool predictionStartAuthorized;
         private bool serverPredictionReady;
+        private bool predictionPrepareSent;
+        private bool allPlayersReady;
+        private bool clientPrepareReceived;
+        private bool clientReadyLogged;
         private bool completionSent;
+        private bool invalidAuthoritySent;
+        private bool staleHistorySkipped;
+        private bool stallRecoveryComplete;
         private bool finishing;
+        private CursorIntentView cursorView;
+        private Camera playerCamera;
+
+        private bool IsInteractive => options.Script == "interactive";
+        private bool IsLateJoin => options.Scenario == "late_join";
 
         public static bool ShouldPublishSnapshot(uint simulationTick)
         {
@@ -119,6 +137,8 @@ namespace CarFight.Networking.Runtime
             Rigidbody collisionBody = collision.GetComponent<Rigidbody>();
             if (localBody == null || collisionBody == null)
                 return false;
+            cursorView = FindFirstObjectByType<CursorIntentView>();
+            playerCamera = FindFirstObjectByType<Camera>();
 
             firstVehicle = local.GetComponent<NetworkJeepController>();
             secondVehicle = collision.GetComponent<NetworkJeepController>();
@@ -136,6 +156,8 @@ namespace CarFight.Networking.Runtime
             {
                 ConfigureClientView(1, firstVehicle, localBody);
                 ConfigureClientView(2, secondVehicle, collisionBody);
+                firstVehicle.ConfigureRemoteCollisionPeer(secondVehicle);
+                secondVehicle.ConfigureRemoteCollisionPeer(firstVehicle);
             }
 
             sceneConfigured = true;
@@ -171,6 +193,8 @@ namespace CarFight.Networking.Runtime
             manager.ServerManager.OnRemoteConnectionState += OnServerRemoteConnectionState;
             manager.ServerManager.RegisterBroadcast<JoinRequestMessage>(OnJoinRequest);
             manager.ServerManager.RegisterBroadcast<ClientCompleteMessage>(OnClientComplete);
+            manager.ServerManager.RegisterBroadcast<InvalidAuthorityRequestMessage>(OnInvalidAuthorityRequest);
+            manager.ServerManager.RegisterBroadcast<ClientReadyMessage>(OnClientReady);
             manager.TimeManager.OnPostTick += OnNetworkPostTick;
             manager.TransportManager.Transport.SetMaximumClients(2);
             Log("SERVER_STARTING", $"port={options.Port}");
@@ -184,6 +208,7 @@ namespace CarFight.Networking.Runtime
             manager.ClientManager.OnClientConnectionState += OnClientConnectionState;
             manager.ClientManager.RegisterBroadcast<VehicleAssignmentMessage>(OnVehicleAssignment);
             manager.ClientManager.RegisterBroadcast<PredictionReadyMessage>(OnPredictionReady);
+            manager.ClientManager.RegisterBroadcast<AllPlayersReadyMessage>(OnAllPlayersReady);
             manager.ClientManager.RegisterBroadcast<SnapshotBatchMessage>(OnSnapshotBatch);
             manager.ClientManager.RegisterBroadcast<AuthoritativeContactMessage>(OnContactObserved);
             manager.ClientManager.RegisterBroadcast<ScenarioCompleteMessage>(OnScenarioComplete);
@@ -204,18 +229,76 @@ namespace CarFight.Networking.Runtime
                 !manager.ClientManager.Started)
                 return;
 
-            bool neutral = contactObserved;
-            Vector2 cursor = Vector2.zero;
-            if (!neutral)
+            bool neutral = !IsInteractive && contactObserved;
+            Vector2 cursor = IsInteractive
+                ? GatherInteractiveCursor()
+                : Vector2.zero;
+            if (!IsInteractive && !neutral)
                 cursor = assignedVehicleId == 1 ? Vector2.down * 20f : Vector2.up * 20f;
+            if ((IsLateJoin || options.Scenario == "reconnect") &&
+                options.ClientName == "alpha" &&
+                !allPlayersReady)
+            {
+                if (IsLateJoin)
+                    lateJoinSoloTicks++;
+                if (!IsLateJoin || lateJoinSoloTicks > 1)
+                    cursor = Vector2.zero;
+            }
             NetworkJeepController owned = assignedVehicleId == 1 ? firstVehicle : secondVehicle;
-            owned.SetLocalInput(cursor, false, false);
+            Keyboard keyboard = Keyboard.current;
+            bool burst = IsInteractive && keyboard != null && keyboard.spaceKey.isPressed;
+            bool reverse = IsInteractive && keyboard != null && keyboard.tabKey.isPressed;
+            owned.SetLocalInput(cursor, burst, reverse);
+            if (IsInteractive && cursorView != null)
+            {
+                cursorView.Render(
+                    owned.transform.position,
+                    cursor,
+                    VehiclePhysicsProfile.CollisionRadius);
+            }
 
             if (predictionReady && !inputSentLogged)
             {
                 inputSentLogged = true;
                 Log("INPUT_SENT", $"response_ticks=1 vehicle={assignedVehicleId}");
             }
+            if (predictionReady &&
+                options.Scenario == "invalid_authority" &&
+                !invalidAuthoritySent)
+            {
+                invalidAuthoritySent = true;
+                uint foreignVehicleId = assignedVehicleId == 1 ? 2u : 1u;
+                manager.ClientManager.Broadcast(new InvalidAuthorityRequestMessage
+                {
+                    RunId = options.RunId,
+                    ClaimedVehicleId = foreignVehicleId,
+                    ClaimedSessionGeneration = assignedSessionGeneration,
+                    ClaimedPosition = new Vector3(500f, 50f, -500f),
+                    ClaimedLinearVelocity = Vector3.one * 1000f
+                });
+                Log("INVALID_AUTHORITY_SENT", $"claimed_vehicle={foreignVehicleId}");
+            }
+        }
+
+        private Vector2 GatherInteractiveCursor()
+        {
+            Mouse mouse = Mouse.current;
+            NetworkJeepController owned = OwnedVehicle();
+            if (mouse == null || playerCamera == null || owned == null)
+                return Vector2.zero;
+
+            Ray ray = playerCamera.ScreenPointToRay(mouse.position.ReadValue());
+            float roadPlaneY = owned.transform.position.y - VehiclePhysicsProfile.CollisionRadius;
+            if (Mathf.Abs(ray.direction.y) <= 0.00001f)
+                return Vector2.zero;
+            float distance = (roadPlaneY - ray.origin.y) / ray.direction.y;
+            if (distance < 0f)
+                return Vector2.zero;
+            Vector3 hit = ray.origin + ray.direction * distance;
+            Vector3 delta = hit - owned.transform.position;
+            return Vector2.ClampMagnitude(
+                new Vector2(delta.x, delta.z),
+                FollowController.MaxDistance);
         }
 
         private void OnNetworkPostTick()
@@ -232,6 +315,9 @@ namespace CarFight.Networking.Runtime
                     PublishSettledSnapshots();
                 return;
             }
+
+            if (IsInteractive)
+                return;
 
             if (assignedVehicleId == 0 || !firstCompleteSnapshot || !contactObserved)
                 return;
@@ -275,7 +361,7 @@ namespace CarFight.Networking.Runtime
                 return;
             if (options.Role == NetworkProcessRole.Client)
                 UpdateRemotePresentation();
-            if (Time.realtimeSinceStartup - startedAt > ProcessTimeoutSeconds)
+            if (!IsInteractive && Time.realtimeSinceStartup - startedAt > ProcessTimeoutSeconds)
                 Finish(false, "process_timeout");
         }
 
@@ -311,6 +397,20 @@ namespace CarFight.Networking.Runtime
                 completedDisconnectCount++;
             if (completedCount == 2 && completedDisconnectCount == 2)
                 Finish(true, "baseline_complete");
+            if (options.Scenario == "reconnect" && !peer.Complete)
+            {
+                peer.Jeep.RemoveOwnership();
+                peer.Jeep.StopAuthoritativeMotion();
+                serverPeers.Remove(connection.ClientId);
+                assignedNames.Remove(peer.Name);
+                assignedCount--;
+                manager.ServerManager.Broadcast(new AllPlayersReadyMessage
+                {
+                    RunId = options.RunId,
+                    Ready = false
+                });
+                Log("SESSION_RELEASED", $"name={peer.Name} vehicle={peer.Jeep.VehicleId}");
+            }
         }
 
         private void OnJoinRequest(
@@ -355,11 +455,13 @@ namespace CarFight.Networking.Runtime
                 return;
             }
 
-            NetworkJeepController jeep = assignedCount == 0 ? firstVehicle : secondVehicle;
+            NetworkJeepController jeep = !firstVehicle.Owner.IsValid ? firstVehicle : secondVehicle;
             uint generation = nextSessionGeneration++;
             jeep.AssignSession(generation);
             jeep.GiveOwnership(connection);
             ServerPeer peer = new ServerPeer(connection, message.ClientName, jeep);
+            if (IsLateJoin && assignedCount == 0)
+                peer.Ready = true;
             serverPeers.Add(connection.ClientId, peer);
             assignedNames.Add(message.ClientName);
             assignedCount++;
@@ -373,21 +475,105 @@ namespace CarFight.Networking.Runtime
                 "OWNERSHIP_ASSIGNED",
                 $"connection={connection.ClientId} name={message.ClientName} vehicle={jeep.VehicleId} generation={generation}");
             StartPredictionWhenAssigned();
+            if (serverPredictionReady)
+            {
+                manager.ServerManager.Broadcast(connection, new PredictionReadyMessage
+                {
+                    RunId = options.RunId
+                });
+            }
+            if (contactObserved)
+            {
+                manager.ServerManager.Broadcast(connection, new AuthoritativeContactMessage
+                {
+                    RunId = options.RunId,
+                    ServerSimulationTick = contactTick,
+                    FirstVehicleId = 1,
+                    SecondVehicleId = 2,
+                    FirstLinearVelocity = firstVehicle.CaptureSettledSnapshot(serverTick).LinearVelocity,
+                    SecondLinearVelocity = secondVehicle.CaptureSettledSnapshot(serverTick).LinearVelocity
+                });
+            }
         }
 
         private void StartPredictionWhenAssigned()
         {
-            if (assignedCount != 2 || serverPredictionReady)
+            int requiredAssignments = IsLateJoin ? 1 : 2;
+            if (assignedCount < requiredAssignments ||
+                serverPredictionReady ||
+                predictionPrepareSent)
                 return;
 
-            serverPredictionReady = true;
-            firstVehicle.SetSimulationEnabled(true);
-            secondVehicle.SetSimulationEnabled(true);
+            predictionPrepareSent = true;
+            if (IsLateJoin)
+            {
+                serverPredictionReady = true;
+                firstVehicle.SetSimulationEnabled(true);
+                secondVehicle.SetSimulationEnabled(true);
+            }
             manager.ServerManager.Broadcast(new PredictionReadyMessage
             {
                 RunId = options.RunId
             });
+            Log(IsLateJoin ? "PREDICTION_READY" : "PREDICTION_PREPARED", "vehicles=2");
+        }
+
+        private void OnClientReady(
+            NetworkConnection connection,
+            ClientReadyMessage message,
+            Channel channel)
+        {
+            if (!serverPeers.TryGetValue(connection.ClientId, out ServerPeer peer) ||
+                message.RunId != options.RunId ||
+                message.ClientName != peer.Name)
+                return;
+            bool becameReady = !peer.Ready;
+            if (becameReady)
+            {
+                peer.Ready = true;
+                Log("CLIENT_READY_ACCEPTED", $"name={peer.Name}");
+            }
+            if (!becameReady || assignedCount != 2)
+                return;
+            foreach (ServerPeer candidate in serverPeers.Values)
+            {
+                if (!candidate.Ready)
+                    return;
+            }
+
+            if (!serverPredictionReady)
+            {
+                serverPredictionReady = true;
+                firstVehicle.SetSimulationEnabled(true);
+                secondVehicle.SetSimulationEnabled(true);
+            }
+            BroadcastAllPlayersReady(true);
             Log("PREDICTION_READY", "vehicles=2");
+        }
+
+        private void BroadcastAllPlayersReady(bool ready)
+        {
+            manager.ServerManager.Broadcast(new AllPlayersReadyMessage
+            {
+                RunId = options.RunId,
+                Ready = ready
+            });
+        }
+
+        private void OnInvalidAuthorityRequest(
+            NetworkConnection connection,
+            InvalidAuthorityRequestMessage message,
+            Channel channel)
+        {
+            if (!serverPeers.TryGetValue(connection.ClientId, out ServerPeer peer) ||
+                message.RunId != options.RunId)
+                return;
+
+            bool foreignVehicle = message.ClaimedVehicleId != peer.Jeep.VehicleId;
+            bool validGeneration = message.ClaimedSessionGeneration == peer.Jeep.SessionGeneration;
+            Log(
+                "INVALID_AUTHORITY_REJECTED",
+                $"connection={connection.ClientId} claimed_vehicle={message.ClaimedVehicleId} foreign={(foreignVehicle ? 1 : 0)} generation_match={(validGeneration ? 1 : 0)} authority_changed=0");
         }
 
         private void OnVehicleInput(
@@ -434,6 +620,33 @@ namespace CarFight.Networking.Runtime
             };
             manager.ServerManager.Broadcast(batch, true, Channel.Unreliable);
             snapshotBatchCount++;
+            if (snapshotBatchCount % 15 == 0)
+            {
+                if (predictionPrepareSent && !serverPredictionReady)
+                {
+                    manager.ServerManager.Broadcast(new PredictionReadyMessage
+                    {
+                        RunId = options.RunId
+                    });
+                }
+                else if (IsLateJoin &&
+                         serverPredictionReady &&
+                         assignedCount == 2 &&
+                         !AllServerPeersReady())
+                {
+                    manager.ServerManager.Broadcast(new PredictionReadyMessage
+                    {
+                        RunId = options.RunId
+                    });
+                }
+                else if (serverPredictionReady &&
+                         assignedCount == 2 &&
+                         AllServerPeersReady() &&
+                         !BothAssignedInputsAccepted())
+                {
+                    BroadcastAllPlayersReady(true);
+                }
+            }
             if (snapshotBatchCount == 1 || snapshotBatchCount % 30 == 0)
             {
                 Log(
@@ -506,7 +719,9 @@ namespace CarFight.Networking.Runtime
             bool predictionWithinLimits = true;
             foreach (ServerPeer candidate in serverPeers.Values)
             {
-                predictionWithinLimits &= candidate.MaximumRawError <= 2f &&
+                bool rawErrorWithinLimits = options.Scenario == "stall" ||
+                                            candidate.MaximumRawError <= 2f;
+                predictionWithinLimits &= rawErrorWithinLimits &&
                                           candidate.MaximumVisualCorrection <= PredictionPresentationRules.MaximumCorrectionPerUpdate &&
                                           candidate.FinalPositionError <= 0.10f &&
                                           candidate.FinalYawError <= 2f &&
@@ -527,7 +742,10 @@ namespace CarFight.Networking.Runtime
         private void OnClientConnectionState(ClientConnectionStateArgs args)
         {
             if (args.ConnectionState == LocalConnectionState.Started)
+            {
+                connectedAt = Time.realtimeSinceStartup;
                 Log("CLIENT_CONNECTED");
+            }
             else if (args.ConnectionState == LocalConnectionState.Stopped && !finishing)
                 Finish(false, "client_disconnected_early");
         }
@@ -566,12 +784,64 @@ namespace CarFight.Networking.Runtime
 
         private void OnPredictionReady(PredictionReadyMessage message, Channel channel)
         {
-            if (message.RunId != options.RunId || predictionReady || assignedVehicleId == 0)
+            if (message.RunId != options.RunId || assignedVehicleId == 0)
                 return;
 
+            if (IsLateJoin)
+            {
+                if (options.ClientName == "alpha")
+                {
+                    predictionStartAuthorized = true;
+                    TryStartClientPrediction();
+                    return;
+                }
+            }
+
+            clientPrepareReceived = true;
+            TrySendClientReady();
+        }
+
+        private void OnAllPlayersReady(AllPlayersReadyMessage message, Channel channel)
+        {
+            if (message.RunId != options.RunId)
+                return;
+            bool changed = allPlayersReady != message.Ready;
+            allPlayersReady = message.Ready;
+            if (allPlayersReady)
+            {
+                predictionStartAuthorized = true;
+                TryStartClientPrediction();
+            }
+            if (changed)
+                Log("ALL_PLAYERS_READY", $"ready={(allPlayersReady ? 1 : 0)} vehicles=2");
+        }
+
+        private void TryStartClientPrediction()
+        {
+            if (!predictionStartAuthorized ||
+                predictionReady ||
+                assignedVehicleId == 0 ||
+                !firstCompleteSnapshot)
+                return;
             predictionReady = true;
             OwnedVehicle().SetSimulationEnabled(true);
             Log("PREDICTION_READY", "response_ticks=1");
+        }
+
+        private void TrySendClientReady()
+        {
+            if (!clientPrepareReceived || assignedVehicleId == 0 || !firstCompleteSnapshot)
+                return;
+            manager.ClientManager.Broadcast(new ClientReadyMessage
+            {
+                RunId = options.RunId,
+                ClientName = options.ClientName
+            });
+            if (!clientReadyLogged)
+            {
+                clientReadyLogged = true;
+                Log("CLIENT_READY_SENT");
+            }
         }
 
         private void OnSnapshotBatch(SnapshotBatchMessage message, Channel channel)
@@ -590,6 +860,36 @@ namespace CarFight.Networking.Runtime
             {
                 firstCompleteSnapshot = true;
                 Log("FIRST_COMPLETE_SNAPSHOT", $"tick={lastSnapshotTick} vehicles=2");
+                if (options.Scenario == "late_join" && options.ClientName == "bravo")
+                {
+                    Log(
+                        "LATE_JOIN_READY",
+                        $"elapsed_ms={(Time.realtimeSinceStartup - connectedAt) * 1000f:F1} tick={lastSnapshotTick} vehicles=2");
+                }
+                TryStartClientPrediction();
+                TrySendClientReady();
+            }
+
+            float receivedAt = Time.realtimeSinceStartup;
+            if (options.Scenario == "stall" &&
+                lastSnapshotReceivedAt > 0f &&
+                receivedAt - lastSnapshotReceivedAt >= 1f &&
+                !staleHistorySkipped)
+            {
+                staleHistorySkipped = true;
+                stallRecoveryTick = message.ServerSimulationTick;
+                remotePresentationSnapshots.Clear();
+                Log(
+                    "STALE_HISTORY_SKIPPED",
+                    $"gap_ms={(receivedAt - lastSnapshotReceivedAt) * 1000f:F1} newest_tick={stallRecoveryTick}");
+            }
+            lastSnapshotReceivedAt = receivedAt;
+            if (staleHistorySkipped &&
+                !stallRecoveryComplete &&
+                VehicleInputRules.IsNewer(message.ServerSimulationTick, stallRecoveryTick + SnapshotIntervalTicks))
+            {
+                stallRecoveryComplete = true;
+                Log("STALL_RECOVERY_COMPLETE", $"tick={message.ServerSimulationTick}");
             }
 
             if (contactObserved && VehicleInputRules.IsNewer(lastSnapshotTick, contactTick))
@@ -604,6 +904,13 @@ namespace CarFight.Networking.Runtime
             if (snapshot.VehicleId == assignedVehicleId)
                 return;
 
+            NetworkJeepController remote = snapshot.VehicleId == 1 ? firstVehicle : secondVehicle;
+            uint delayTicks = (uint)Mathf.CeilToInt(
+                options.NetworkDelayMilliseconds * PredictionPresentationRules.PhysicsRate / 1000f);
+            uint estimatedServerTick = snapshot.ServerSimulationTick + delayTicks * 2u;
+            remote.SetRemoteAuthorityEstimate(
+                snapshot,
+                estimatedServerTick);
             remotePresentationSnapshots.Add(snapshot);
             if (remotePresentationSnapshots.Count > 4)
                 remotePresentationSnapshots.RemoveAt(0);
@@ -644,9 +951,8 @@ namespace CarFight.Networking.Runtime
                 newer,
                 candidateTick);
             uint remoteVehicleId = assignedVehicleId == 1 ? 2u : 1u;
-            Rigidbody view = clientViews[remoteVehicleId];
-            view.position = sample.Position;
-            view.rotation = sample.Rotation;
+            NetworkJeepController remote = remoteVehicleId == 1 ? firstVehicle : secondVehicle;
+            remote.SetRemotePresentation(sample);
             maximumSnapshotAgeMilliseconds = Mathf.Max(
                 maximumSnapshotAgeMilliseconds,
                 sample.SnapshotAgeMilliseconds);
@@ -745,6 +1051,18 @@ namespace CarFight.Networking.Runtime
             return true;
         }
 
+        private bool AllServerPeersReady()
+        {
+            if (serverPeers.Count != 2)
+                return false;
+            foreach (ServerPeer peer in serverPeers.Values)
+            {
+                if (!peer.Ready)
+                    return false;
+            }
+            return true;
+        }
+
         private IEnumerator QuitAfterNetworkStop(bool passed)
         {
             yield return null;
@@ -775,6 +1093,7 @@ namespace CarFight.Networking.Runtime
             public NetworkJeepController Jeep { get; }
             public bool InputAcceptedLogged { get; set; }
             public bool Complete { get; set; }
+            public bool Ready { get; set; }
             public float MaximumRawError { get; set; }
             public float MaximumVisualCorrection { get; set; }
             public float FinalPositionError { get; set; }

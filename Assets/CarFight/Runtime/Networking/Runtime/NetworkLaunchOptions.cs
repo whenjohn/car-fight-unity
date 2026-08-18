@@ -16,7 +16,9 @@ namespace CarFight.Networking.Runtime
             string runId,
             string host,
             string clientName,
-            string script)
+            string script,
+            ushort networkDelayMilliseconds = 0,
+            string scenario = "baseline")
         {
             Role = role;
             Port = port;
@@ -24,6 +26,8 @@ namespace CarFight.Networking.Runtime
             Host = host;
             ClientName = clientName;
             Script = script;
+            NetworkDelayMilliseconds = networkDelayMilliseconds;
+            Scenario = scenario;
         }
 
         public NetworkProcessRole Role { get; }
@@ -32,6 +36,8 @@ namespace CarFight.Networking.Runtime
         public string Host { get; }
         public string ClientName { get; }
         public string Script { get; }
+        public ushort NetworkDelayMilliseconds { get; }
+        public string Scenario { get; }
 
         public static bool HasNetworkRole(string[] arguments)
         {
@@ -59,6 +65,11 @@ namespace CarFight.Networking.Runtime
 
             if (!TryValue(arguments, "--run-id", out string runId) || string.IsNullOrWhiteSpace(runId))
                 return Fail("--run-id is required.", out error);
+            string scenario = "baseline";
+            if (TryValue(arguments, "--scenario", out string scenarioText))
+                scenario = scenarioText;
+            if (!IsSupportedScenario(scenario))
+                return Fail("--scenario is not supported.", out error);
 
             if (server)
             {
@@ -68,7 +79,9 @@ namespace CarFight.Networking.Runtime
                     runId,
                     string.Empty,
                     string.Empty,
-                    string.Empty);
+                    HasFlag(arguments, "--interactive") ? "interactive" : string.Empty,
+                    0,
+                    scenario);
                 return true;
             }
 
@@ -80,8 +93,17 @@ namespace CarFight.Networking.Runtime
                 return Fail("Client --name must be alpha or bravo.", out error);
             }
 
-            if (!TryValue(arguments, "--script", out string script) || script != "converge")
-                return Fail("Checkpoint 2B supports only --script converge.", out error);
+            if (!TryValue(arguments, "--script", out string script) ||
+                (script != "converge" && script != "interactive"))
+            {
+                return Fail("Client --script must be converge or interactive.", out error);
+            }
+            ushort delay = 0;
+            if (TryValue(arguments, "--network-delay-ms", out string delayText) &&
+                !ushort.TryParse(delayText, out delay))
+            {
+                return Fail("--network-delay-ms must be a non-negative integer.", out error);
+            }
 
             options = new NetworkLaunchOptions(
                 NetworkProcessRole.Client,
@@ -89,13 +111,27 @@ namespace CarFight.Networking.Runtime
                 runId,
                 host,
                 name,
-                script);
+                script,
+                delay,
+                scenario);
             return true;
         }
 
         private static bool HasFlag(string[] arguments, string flag)
         {
             return Array.IndexOf(arguments, flag) >= 0;
+        }
+
+        private static bool IsSupportedScenario(string value)
+        {
+            return value == "baseline" ||
+                   value == "latency" ||
+                   value == "jitter" ||
+                   value == "loss" ||
+                   value == "late_join" ||
+                   value == "reconnect" ||
+                   value == "invalid_authority" ||
+                   value == "stall";
         }
 
         private static bool TryValue(string[] arguments, string flag, out string value)

@@ -71,5 +71,53 @@ namespace CarFight.Tests.Networking
             Assert.That(BaselineNetworkScenario.ShouldPublishSnapshot(3), Is.False);
             Assert.That(BaselineNetworkScenario.ShouldPublishSnapshot(4), Is.True);
         }
+
+        [Test]
+        public void LifecycleScenarioAndDelayAreParsedForBothRoles()
+        {
+            Assert.That(
+                NetworkLaunchOptions.TryParse(
+                    new[]
+                    {
+                        "CarFight", "--client", "--host", "127.0.0.1", "--port", "9900",
+                        "--name", "bravo", "--script", "converge", "--scenario", "stall",
+                        "--network-delay-ms", "120", "--run-id", "gate2e"
+                    },
+                    out NetworkLaunchOptions client,
+                    out string clientError),
+                Is.True,
+                clientError);
+            Assert.That(client.Scenario, Is.EqualTo("stall"));
+            Assert.That(client.NetworkDelayMilliseconds, Is.EqualTo(120));
+
+            Assert.That(
+                NetworkLaunchOptions.TryParse(
+                    new[]
+                    {
+                        "CarFight", "--server", "--port", "9900", "--scenario", "reconnect",
+                        "--run-id", "gate2e"
+                    },
+                    out NetworkLaunchOptions server,
+                    out string serverError),
+                Is.True,
+                serverError);
+            Assert.That(server.Scenario, Is.EqualTo("reconnect"));
+        }
+
+        [Test]
+        public void UnknownLifecycleScenarioIsRejected()
+        {
+            Assert.That(
+                NetworkLaunchOptions.TryParse(
+                    new[]
+                    {
+                        "CarFight", "--server", "--port", "9900", "--scenario", "invented",
+                        "--run-id", "gate2e"
+                    },
+                    out _,
+                    out string error),
+                Is.False,
+                error);
+        }
     }
 }
