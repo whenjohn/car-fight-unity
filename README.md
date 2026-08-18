@@ -53,3 +53,5 @@ Gate 2 is currently specified in
 [docs/MULTIPLAYER_ACCEPTANCE.md](docs/MULTIPLAYER_ACCEPTANCE.md). The
 accepted networking comparison and FishNet selection are recorded in
 [docs/NETWORKING_COMPARISON.md](docs/NETWORKING_COMPARISON.md).
+The ordered implementation checkpoints and immediate coding boundary are in
+[docs/GATE2_IMPLEMENTATION_PLAN.md](docs/GATE2_IMPLEMENTATION_PLAN.md).
