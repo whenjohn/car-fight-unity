@@ -11,6 +11,10 @@ namespace CarFight.Networking.Runtime
         private static void InstallForCommandLineRole()
         {
             string[] arguments = Environment.GetCommandLineArgs();
+#if UNITY_WEBGL && !UNITY_EDITOR
+            if (!NetworkLaunchOptions.HasNetworkRole(arguments))
+                arguments = BrowserNetworkLaunchOptions.Create(Application.absoluteURL);
+#endif
             if (!NetworkLaunchOptions.HasNetworkRole(arguments))
                 return;
 
@@ -23,6 +27,7 @@ namespace CarFight.Networking.Runtime
 
             GameObject root = new GameObject("CarFightNetworkRuntime");
             root.SetActive(false);
+            NetworkTransportBootstrap.Configure(root, options.Role);
             NetworkManager manager = root.AddComponent<NetworkManager>();
             manager.SpawnablePrefabs = ScriptableObject.CreateInstance<DefaultPrefabObjects>();
             BaselineNetworkScenario scenario = root.AddComponent<BaselineNetworkScenario>();

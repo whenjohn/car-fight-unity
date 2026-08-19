@@ -6,6 +6,33 @@ namespace CarFight.Tests.Networking
     public sealed class NetworkLaunchOptionsTests
     {
         [Test]
+        public void BrowserDefaultsToPageHostAndInteractiveBravo()
+        {
+            string[] arguments = BrowserNetworkLaunchOptions.Create("http://127.0.0.1:8080/index.html");
+
+            Assert.That(NetworkLaunchOptions.TryParse(arguments, out NetworkLaunchOptions options, out string error), Is.True, error);
+            Assert.That(options.Role, Is.EqualTo(NetworkProcessRole.Client));
+            Assert.That(options.Host, Is.EqualTo("127.0.0.1"));
+            Assert.That(options.Port, Is.EqualTo(BrowserNetworkLaunchOptions.DefaultSignalingPort));
+            Assert.That(options.RunId, Is.EqualTo("browser-review"));
+            Assert.That(options.ClientName, Is.EqualTo("bravo"));
+            Assert.That(options.Script, Is.EqualTo("interactive"));
+        }
+
+        [Test]
+        public void BrowserQueryOverridesConnectionIdentity()
+        {
+            string[] arguments = BrowserNetworkLaunchOptions.Create(
+                "http://localhost:8080/?host=10.0.0.4&port=7811&run=review%202&name=alpha");
+
+            Assert.That(NetworkLaunchOptions.TryParse(arguments, out NetworkLaunchOptions options, out string error), Is.True, error);
+            Assert.That(options.Host, Is.EqualTo("10.0.0.4"));
+            Assert.That(options.Port, Is.EqualTo(7811));
+            Assert.That(options.RunId, Is.EqualTo("review 2"));
+            Assert.That(options.ClientName, Is.EqualTo("alpha"));
+        }
+
+        [Test]
         public void ServerRoleRequiresPortAndRunIdentity()
         {
             bool parsed = NetworkLaunchOptions.TryParse(

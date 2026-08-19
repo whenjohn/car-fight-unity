@@ -1,5 +1,15 @@
 {
   "dependencies": {
+    "com.cakeslice.fishy-webrtc": {
+      "version": "https://github.com/whenjohn/FishyWebRTC.git#f11c82d657c515945027b091f1a7d08d38763eb0",
+      "depth": 0,
+      "source": "git",
+      "dependencies": {
+        "com.unity.webrtc": "https://github.com/whenjohn/com.unity.webrtc.git#ac2faeacd74b5ac8c76be70308bd81520fe4995c",
+        "com.unity.nuget.newtonsoft-json": "3.0.2"
+      },
+      "hash": "f11c82d657c515945027b091f1a7d08d38763eb0"
+    },
     "com.firstgeargames.fishnet": {
       "version": "https://github.com/FirstGearGames/FishNet.git?path=Assets/FishNet#4.7.2",
       "depth": 0,
@@ -37,6 +47,13 @@
         "com.unity.nuget.mono-cecil": "1.11.6",
         "com.unity.test-framework.performance": "3.0.3"
       },
+      "url": "https://packages.unity.com"
+    },
+    "com.unity.editorcoroutines": {
+      "version": "1.1.0",
+      "depth": 1,
+      "source": "registry",
+      "dependencies": {},
       "url": "https://packages.unity.com"
     },
     "com.unity.ext.nunit": {
@@ -165,6 +182,17 @@
         "com.unity.modules.ui": "1.0.0",
         "com.unity.modules.imgui": "1.0.0"
       }
+    },
+    "com.unity.webrtc": {
+      "version": "https://github.com/whenjohn/com.unity.webrtc.git#ac2faeacd74b5ac8c76be70308bd81520fe4995c",
+      "depth": 0,
+      "source": "git",
+      "dependencies": {
+        "com.unity.modules.jsonserialize": "1.0.0",
+        "com.unity.editorcoroutines": "1.0.0",
+        "com.unity.modules.audio": "1.0.0"
+      },
+      "hash": "ac2faeacd74b5ac8c76be70308bd81520fe4995c"
     },
     "com.unity.modules.accessibility": {
       "version": "1.0.0",

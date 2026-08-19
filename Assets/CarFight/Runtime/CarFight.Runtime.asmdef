@@ -3,7 +3,8 @@
   "rootNamespace": "CarFight",
   "references": [
     "Unity.InputSystem",
-    "FishNet.Runtime"
+    "FishNet.Runtime",
+    "CarFight.FishyWebRTC.Adapter"
   ],
   "includePlatforms": [],
   "excludePlatforms": [],
