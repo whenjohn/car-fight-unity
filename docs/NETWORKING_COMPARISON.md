@@ -4,6 +4,8 @@ Status: FishNet `4.7.2` selected for the multiplayer foundation proof.
 
 Reviewed: 2026-08-17
 
+Checkpoint 2F-A browser review: 2026-08-18
+
 ## Decision criteria
 
 The selected framework must support the accepted
@@ -74,6 +76,56 @@ evidence. Before Gate 2 closes, a focused spike must prove:
 
 Bayou or FishyUnityTransport will not be installed until that focused transport
 spike begins. Tugboat is sufficient for the native proof.
+
+## Checkpoint 2F-A browser transport review
+
+The project is pinned to Unity `6000.3.22f1` x86_64 and FishNet `4.7.2` at
+commit `de19b5d66459f60400ffd0edc443c4da173a01e7`. Only the macOS playback
+engine is currently installed; Web Build Support is not. No browser transport
+has been installed during this review.
+
+| Candidate | Current evidence | Cost and risk | 2F-A result |
+| --- | --- | --- | --- |
+| Bayou `4.1.5` plus built-in Multipass | FirstGearGames' documented WebGL transport. Multipass explicitly supports Tugboat and Bayou clients in one server world on separate ports. Tag `4.1.5` is commit `c98af7b7d2507e2c8f285f1a6cd44915eb04a662`, published 2025-09-14 under MIT. | One small transport package and the WebGL editor module. WebSocket delivery is reliable and ordered even when FishNet labels a payload unreliable, so combined delay/loss can expose head-of-line stale state. Unity 6's optional `Target WebAssembly 2023` path has an unresolved Bayou JavaScript issue and must remain off for the first control unless upstream resolves it. | **Recommended for the focused spike, pending human approval.** It preserves Tugboat for the accepted native path and exercises the exact WebSocket queue risk this checkpoint must measure. |
+| FishyUnityTransport `2.0.0-pre.2` | Community FishNet adapter over Unity Transport. It supports native UDP and WebGL WebSockets; tag `2.0.0-pre.2` is commit `08756d9733a556018041e52fcb9d2a6035346aeb`, published 2025-04-18 under MIT. | Adds Unity Transport plus a prerelease adapter. Its package declares Unity Transport `1.3.1`, while its WebGL instructions require `2.0.0+`. An open issue reports failure to connect with FishNet `4.6.2`, which is older than this project's `4.7.2`. Using it for native traffic would also replace an accepted Tugboat control; using Multipass would be no smaller than Bayou. | Rejected for the first spike. Reconsider only if Bayou fails for a documented transport defect. |
+| FishyWebRTC | WebRTC could provide browser-native unreliable delivery without TCP head-of-line blocking. | Community repository has no releases and was last pushed in 2023. It adds WebRTC and signaling complexity to a two-client architecture proof. | Rejected as neither the smallest nor the best-maintained path. |
+
+### Recommended installation boundary
+
+After human approval, Increment 2F-B should:
+
+1. Install Unity Web Build Support for the pinned `6000.3.22f1` x86_64
+   Editor.
+2. Pin Bayou from
+   `https://github.com/FirstGearGames/Bayou.git?path=FishNet/Plugins/Bayou#4.1.5`
+   and verify Unity resolves commit
+   `c98af7b7d2507e2c8f285f1a6cd44915eb04a662`.
+3. Keep Tugboat and add FishNet's already-included Multipass. The server listens
+   on separate Tugboat/UDP and Bayou/WebSocket ports; each client selects only
+   its own transport.
+4. Begin with local HTTP plus `ws://` as the connection control. Then document
+   and test the production-shaped `wss://` path, either by Bayou terminating
+   TLS from a certificate or by an explicit WebSocket reverse proxy terminating
+   TLS in front of Bayou.
+5. Treat Bayou's WebSocket stream as reliable and ordered. Do not claim that a
+   FishNet unreliable channel bypasses TCP ordering. Instrument queued age and
+   prove stale replaceable snapshots are coalesced or discarded before final
+   acceptance.
+
+The first compile/build after installation is a compatibility gate. A failure
+does not authorize changing the accepted authority, prediction, scene, or
+Tugboat contracts; it returns the work to this transport decision.
+
+### 2F-A primary evidence
+
+- [FishNet Bayou documentation](https://fish-networking.gitbook.io/docs/fishnet-building-blocks/transports/bayou)
+- [FishNet Multipass documentation](https://fish-networking.gitbook.io/docs/guides/features/transports/multipass)
+- [Bayou `4.1.5` release](https://github.com/FirstGearGames/Bayou/releases/tag/4.1.5)
+- [Bayou Unity 6 WebAssembly 2023 issue](https://github.com/FirstGearGames/Bayou/issues/20)
+- [FishyUnityTransport repository](https://github.com/ooonush/FishyUnityTransport)
+- [FishyUnityTransport newer-FishNet connection issue](https://github.com/ooonush/FishyUnityTransport/issues/28)
+- [Unity Transport WebGL documentation](https://docs.unity.cn/Packages/com.unity.transport%402.3/manual/websockets.html)
+- [FishyWebRTC repository](https://github.com/cakeslice/FishyWebRTC)
 
 ## License and maintenance risk
 
