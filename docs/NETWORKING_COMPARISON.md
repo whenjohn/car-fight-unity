@@ -86,35 +86,51 @@ has been installed during this review.
 
 | Candidate | Current evidence | Cost and risk | 2F-A result |
 | --- | --- | --- | --- |
-| Bayou `4.1.5` plus built-in Multipass | FirstGearGames' documented WebGL transport. Multipass explicitly supports Tugboat and Bayou clients in one server world on separate ports. Tag `4.1.5` is commit `c98af7b7d2507e2c8f285f1a6cd44915eb04a662`, published 2025-09-14 under MIT. | One small transport package and the WebGL editor module. WebSocket delivery is reliable and ordered even when FishNet labels a payload unreliable, so combined delay/loss can expose head-of-line stale state. Unity 6's optional `Target WebAssembly 2023` path has an unresolved Bayou JavaScript issue and must remain off for the first control unless upstream resolves it. | **Recommended for the focused spike, pending human approval.** It preserves Tugboat for the accepted native path and exercises the exact WebSocket queue risk this checkpoint must measure. |
-| FishyUnityTransport `2.0.0-pre.2` | Community FishNet adapter over Unity Transport. It supports native UDP and WebGL WebSockets; tag `2.0.0-pre.2` is commit `08756d9733a556018041e52fcb9d2a6035346aeb`, published 2025-04-18 under MIT. | Adds Unity Transport plus a prerelease adapter. Its package declares Unity Transport `1.3.1`, while its WebGL instructions require `2.0.0+`. An open issue reports failure to connect with FishNet `4.6.2`, which is older than this project's `4.7.2`. Using it for native traffic would also replace an accepted Tugboat control; using Multipass would be no smaller than Bayou. | Rejected for the first spike. Reconsider only if Bayou fails for a documented transport defect. |
-| FishyWebRTC | WebRTC could provide browser-native unreliable delivery without TCP head-of-line blocking. | Community repository has no releases and was last pushed in 2023. It adds WebRTC and signaling complexity to a two-client architecture proof. | Rejected as neither the smallest nor the best-maintained path. |
+| Bayou `4.1.5` plus built-in Multipass | FirstGearGames' documented WebGL transport. Multipass explicitly supports Tugboat and Bayou clients in one server world on separate ports. Tag `4.1.5` is commit `c98af7b7d2507e2c8f285f1a6cd44915eb04a662`, published 2025-09-14 under MIT. | One small transport package and the WebGL editor module. WebSocket delivery is reliable and ordered even when FishNet labels a payload unreliable, so combined delay/loss can expose head-of-line stale state. Unity 6's optional `Target WebAssembly 2023` path has an unresolved Bayou JavaScript issue and must remain off for the first control unless upstream resolves it. G2's verified WSS experiment also exhausted its outbound buffer and was unplayable under combined delay/loss. | Rejected as the primary Car Fight browser path after human review. Keep only as a fallback connection control if the WebRTC compatibility spike fails for a bounded, documented reason. |
+| FishyUnityTransport `2.0.0-pre.2` | Community FishNet adapter over Unity Transport. It supports native UDP and WebGL WebSockets; tag `2.0.0-pre.2` is commit `08756d9733a556018041e52fcb9d2a6035346aeb`, published 2025-04-18 under MIT. | Adds Unity Transport plus a prerelease adapter. Its package declares Unity Transport `1.3.1`, while its WebGL instructions require `2.0.0+`. An open issue reports failure to connect with FishNet `4.6.2`, which is older than this project's `4.7.2`. Using it for native traffic would also replace an accepted Tugboat control; using Multipass would be no smaller than Bayou. | Rejected for this spike. Its browser gameplay path is still WebSocket-based and does not address the G2 failure mode. |
+| FishyWebRTC at commit `beec5b480e21f3ac280b849455980b94f312408f` | FishNet's documentation says this transport works with current FishNet. Its two WebRTC DataChannels are reliable/ordered and unreliable/unordered with zero retransmits. Multipass can retain Tugboat for the native client. G2 independently proved that browser gameplay should use WebRTC DataChannels while WS/WSS carries signaling only. | Community adapter has no releases and was last pushed in 2023. It requires a narrow compatibility port: its README pins Unity WebRTC `3.0.0-pre.5`, its package manifest points to a now-missing fork, its browser plug-in uses legacy Unity JavaScript calls, and its old instructions modify FishNet's assembly definition. | **Recommended only as a bounded compatibility spike, pending human approval.** Pin the source, use the official Unity WebRTC package, keep adapter changes project-owned, and stop for review if it cannot compile and connect without a transport rewrite. |
 
 ### Recommended installation boundary
+
+Human review corrected the initial Bayou recommendation after carrying forward
+G2's measured transport result. G2's WSS server exhausted its outbound buffer
+and was unacceptable under verified combined delay/loss. Its WebRTC path kept
+gameplay on DataChannels and used WS/WSS only for signaling; measured `5%` loss
+was playable. WebRTC still accumulated stale work under combined mild
+delay/loss until the application added batching, newest-complete-state
+fast-forward, and bounded recovery. Car Fight must test the same boundary rather
+than infer success from a clean connection.
 
 After human approval, Increment 2F-B should:
 
 1. Install Unity Web Build Support for the pinned `6000.3.22f1` x86_64
    Editor.
-2. Pin Bayou from
-   `https://github.com/FirstGearGames/Bayou.git?path=FishNet/Plugins/Bayou#4.1.5`
-   and verify Unity resolves commit
-   `c98af7b7d2507e2c8f285f1a6cd44915eb04a662`.
-3. Keep Tugboat and add FishNet's already-included Multipass. The server listens
-   on separate Tugboat/UDP and Bayou/WebSocket ports; each client selects only
-   its own transport.
-4. Begin with local HTTP plus `ws://` as the connection control. Then document
-   and test the production-shaped `wss://` path, either by Bayou terminating
-   TLS from a certificate or by an explicit WebSocket reverse proxy terminating
-   TLS in front of Bayou.
-5. Treat Bayou's WebSocket stream as reliable and ordered. Do not claim that a
-   FishNet unreliable channel bypasses TCP ordering. Instrument queued age and
-   prove stale replaceable snapshots are coalesced or discarded before final
-   acceptance.
+2. Pin FishyWebRTC source commit
+   `beec5b480e21f3ac280b849455980b94f312408f` as compatibility-source input,
+   not as an unreviewed moving dependency. Pin the official Unity WebRTC
+   `3.0.0-pre.5` package first because that is the only version the adapter
+   claims to support. Do not use its missing `cakeslice/com.unity.webrtc` fork.
+3. Keep compatibility edits in a project-owned adapter assembly that references
+   `FishNet.Runtime` and `SimpleWebRTC`. Do not edit FishNet package-cache files
+   or its pinned assembly definition.
+4. Keep Tugboat and use FishNet's already-included Multipass. The native client
+   stays on Tugboat/UDP; the browser client uses WebRTC DataChannels; both join
+   the same authoritative server world.
+5. Use local HTTP only for the first signaling control. For HTTPS browser
+   hosting, terminate HTTPS at an explicit reverse proxy and forward signaling
+   to the adapter's HTTP endpoint. Gameplay must remain on WebRTC rather than
+   WSS. Record STUN/TURN and ICE behavior explicitly.
+6. Preserve separate reliable/ordered and unreliable/unordered, zero-retransmit
+   DataChannels. Instrument channel buffered bytes and snapshot age. Combined
+   delay/loss must prove newest-complete state replaces stale work rather than
+   stepping through a backlog.
 
-The first compile/build after installation is a compatibility gate. A failure
-does not authorize changing the accepted authority, prediction, scene, or
-Tugboat contracts; it returns the work to this transport decision.
+The first compile/build after installation is a compatibility gate. Limit the
+port to current FishNet transport API names, a project-owned assembly boundary,
+and the smallest Unity 6 JavaScript interop correction. If native server plus
+one WebGL client cannot connect within that boundary, stop for human review.
+Do not write a new WebRTC stack or change the accepted authority, prediction,
+scene, or Tugboat contracts merely to keep this candidate alive.
 
 ### 2F-A primary evidence
 
@@ -125,7 +141,15 @@ Tugboat contracts; it returns the work to this transport decision.
 - [FishyUnityTransport repository](https://github.com/ooonush/FishyUnityTransport)
 - [FishyUnityTransport newer-FishNet connection issue](https://github.com/ooonush/FishyUnityTransport/issues/28)
 - [Unity Transport WebGL documentation](https://docs.unity.cn/Packages/com.unity.transport%402.3/manual/websockets.html)
+- [FishNet FishyWebRTC documentation](https://fish-networking.gitbook.io/docs/fishnet-building-blocks/transports/fishywebrtc)
 - [FishyWebRTC repository](https://github.com/cakeslice/FishyWebRTC)
+- [Unity WebRTC `3.0.0-pre.5`](https://github.com/Unity-Technologies/com.unity.webrtc/tree/3.0.0-pre.5)
+
+Local G2 evidence carried forward during human review:
+
+- `/Users/johnnguyen/Projects/g2/.ai/DECISIONS.md`, D-049 and its adverse-network
+  correction
+- `/Users/johnnguyen/Projects/g2/docs/webrtc-network-verdict.md`
 
 ## License and maintenance risk
 
