@@ -1,0 +1,18 @@
+{
+  "name": "com.cakeslice.fishy-webrtc",
+  "displayName": "Fishy WebRTC",
+  "version": "1.0.1",
+  "unity": "2019.4",
+  "description": "Transport for Fish-Networking using the WebRTC protocol. Includes a WebRTC server and a WebGL client.",
+  "author": "José Guerreiro",
+  "repository": {
+    "type": "git",
+    "url": ""
+  },
+  "dependencies": {
+    "com.unity.webrtc": "https://github.com/whenjohn/com.unity.webrtc.git#ac2faeacd74b5ac8c76be70308bd81520fe4995c",
+    "com.unity.nuget.newtonsoft-json": "3.0.2"
+  },
+  "samples": [],
+  "_fingerprint": "f11c82d657c515945027b091f1a7d08d38763eb0"
+}

@@ -1,4 +1,5 @@
 using System.IO;
+using System.Collections.Generic;
 using CarFight.Driving;
 using CarFight.Networking.Runtime;
 using CarFight.Presentation;
@@ -183,24 +184,53 @@ namespace CarFight.Editor
             GameObject visual = new GameObject("PrimitiveJeep");
             visual.transform.SetParent(root.transform);
             visual.transform.localPosition = Vector3.down * VehiclePhysicsProfile.CollisionRadius;
-            CreateVisualBox("LowerBody", visual.transform, new Vector3(0f, 0.62f, 0f), new Vector3(1.72f, 0.52f, 2.85f), bodyMaterial);
-            CreateVisualBox("Hood", visual.transform, new Vector3(0f, 0.86f, -0.84f), new Vector3(1.58f, 0.34f, 1.02f), bodyMaterial);
-            CreateVisualBox("Cabin", visual.transform, new Vector3(0f, 1.18f, 0.32f), new Vector3(1.46f, 0.66f, 1.18f), bodyMaterial);
-            CreateVisualBox("Windshield", visual.transform, new Vector3(0f, 1.26f, -0.30f), new Vector3(1.28f, 0.38f, 0.08f), glassMaterial);
-            CreateVisualBox("FrontBumper", visual.transform, new Vector3(0f, 0.52f, -1.52f), new Vector3(1.82f, 0.18f, 0.16f), darkMaterial);
-            CreateVisualBox("RearBumper", visual.transform, new Vector3(0f, 0.52f, 1.52f), new Vector3(1.82f, 0.18f, 0.16f), darkMaterial);
+            GameObject chassis = new GameObject("ChassisLean");
+            chassis.transform.SetParent(visual.transform);
+            chassis.transform.localPosition = Vector3.zero;
+            chassis.transform.localRotation = Quaternion.identity;
+            CreateVisualBox("LowerBody", chassis.transform, new Vector3(0f, 0.62f, 0f), new Vector3(1.72f, 0.52f, 2.85f), bodyMaterial);
+            CreateVisualBox("Hood", chassis.transform, new Vector3(0f, 0.86f, -0.84f), new Vector3(1.58f, 0.34f, 1.02f), bodyMaterial);
+            CreateVisualBox("Cabin", chassis.transform, new Vector3(0f, 1.18f, 0.32f), new Vector3(1.46f, 0.66f, 1.18f), bodyMaterial);
+            CreateVisualBox("Windshield", chassis.transform, new Vector3(0f, 1.26f, -0.30f), new Vector3(1.28f, 0.38f, 0.08f), glassMaterial);
+            CreateVisualBox("FrontBumper", chassis.transform, new Vector3(0f, 0.52f, -1.52f), new Vector3(1.82f, 0.18f, 0.16f), darkMaterial);
+            CreateVisualBox("RearBumper", chassis.transform, new Vector3(0f, 0.52f, 1.52f), new Vector3(1.82f, 0.18f, 0.16f), darkMaterial);
 
+            GameObject wheelModel = new GameObject("WheelModel");
+            wheelModel.transform.SetParent(visual.transform);
+            wheelModel.transform.localPosition = Vector3.zero;
+            wheelModel.transform.localRotation = Quaternion.identity;
+            List<Transform> frontSteer = new List<Transform>();
+            List<Transform> wheelSpin = new List<Transform>();
             foreach (float x in new[] { -0.96f, 0.96f })
             foreach (float z in new[] { -0.92f, 0.92f })
-                CreateWheel(visual.transform, new Vector3(x, 0.36f, z), darkMaterial);
+            {
+                string axle = z < 0f ? "Front" : "Rear";
+                string side = x < 0f ? "Left" : "Right";
+                GameObject steer = new GameObject($"{axle}{side}Steer");
+                steer.transform.SetParent(wheelModel.transform);
+                steer.transform.localPosition = new Vector3(x, 0.36f, z);
+                if (z < 0f)
+                    frontSteer.Add(steer.transform);
+                GameObject spin = new GameObject($"{axle}{side}Spin");
+                spin.transform.SetParent(steer.transform);
+                spin.transform.localPosition = Vector3.zero;
+                spin.transform.localRotation = Quaternion.identity;
+                wheelSpin.Add(spin.transform);
+                CreateWheel(spin.transform, Vector3.zero, darkMaterial);
+            }
 
             GameObject pip = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
             pip.name = "PeerMarker";
-            pip.transform.SetParent(visual.transform);
+            pip.transform.SetParent(chassis.transform);
             pip.transform.localPosition = new Vector3(0f, 1.68f, 0f);
             pip.transform.localScale = new Vector3(0.32f, 0.06f, 0.32f);
             pip.GetComponent<MeshRenderer>().sharedMaterial = markerMaterial;
             Object.DestroyImmediate(pip.GetComponent<Collider>());
+            visual.AddComponent<VehicleVisualAnimator>().Configure(
+                body,
+                chassis.transform,
+                frontSteer.ToArray(),
+                wheelSpin.ToArray());
             return root;
         }
 

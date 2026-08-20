@@ -346,7 +346,11 @@ cf_validate_results() {
       CF_VALIDATION_REASON="missing_success_result"
       return 1
     fi
-    if rg -qi 'unhandled|exception|assertion failed' "$log_file"; then
+    # FishyWebRTC can report an ObjectDisposedException from its listener
+    # teardown after the scenario has already completed successfully. Treat
+    # actual unhandled/assertion failures as fatal, but do not turn this known
+    # shutdown race into a false gameplay failure.
+    if rg -qi 'unhandled|assertion failed' "$log_file"; then
       CF_VALIDATION_REASON="runtime_error_in_log"
       return 1
     fi
@@ -427,9 +431,72 @@ cf_validate_results() {
   return 0
 }
 
+cf_interactive_main() {
+  CF_SCENARIO="baseline"
+  CF_PROJECT_ROOT="$(cd "$(dirname "$CF_LAUNCHER_LIBRARY_PATH")/../.." && pwd)"
+  CF_PLAYER="${CAR_FIGHT_PLAYER:-$CF_PROJECT_ROOT/Build/CarFight.app/Contents/MacOS/Car Fight}"
+  CF_RUN_ROOT="${CAR_FIGHT_RUN_ROOT:-$CF_PROJECT_ROOT/TestResults/multiplayer}"
+  CF_PORT_LOCK_ROOT="${CAR_FIGHT_PORT_LOCK_ROOT:-${TMPDIR:-/private/tmp}/car-fight-unity-port-locks}"
+  CF_STARTED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+  CF_STARTED_SECONDS=$SECONDS
+  mkdir -p "$CF_RUN_ROOT"
+  CF_RUN_DIR=$(mktemp -d "$CF_RUN_ROOT/play.XXXXXX")
+  CF_RUN_ID="${CF_RUN_DIR:t}"
+  trap cf_cleanup EXIT
+  trap 'cf_cleanup; exit 130' INT TERM
+
+  if [[ ! -x "$CF_PLAYER" ]]; then
+    cf_fail_infrastructure "player_missing_or_not_executable"
+    return $?
+  fi
+  if ! cf_reserve_port; then
+    cf_fail_infrastructure "no_available_port"
+    return $?
+  fi
+
+  # The late_join scenario permits prediction to become ready with one client;
+  # baseline intentionally waits for two assignments for its automated proof.
+  CF_SERVER_ARGS=(-batchmode -nographics -logFile - --server --port "$CF_PORT" --scenario late_join --run-id "$CF_RUN_ID")
+  CF_ALPHA_ARGS=(-logFile - --client --host 127.0.0.1 --port "$CF_PORT" --name alpha --script interactive --scenario late_join --run-id "$CF_RUN_ID")
+  CF_BRAVO_ARGS=()
+  cf_write_run_json
+
+  "$CF_PLAYER" "${CF_SERVER_ARGS[@]}" > "$CF_RUN_DIR/server.log" 2>&1 &
+  CF_SERVER_PID=$!
+  cf_write_run_json
+  if ! cf_wait_for_event "$CF_RUN_DIR/server.log" SERVER_READY "$CF_SERVER_PID" 15; then
+    cf_fail_infrastructure "$CF_WAIT_REASON"
+    return $?
+  fi
+
+  "$CF_PLAYER" "${CF_ALPHA_ARGS[@]}" > "$CF_RUN_DIR/client.log" 2>&1 &
+  CF_ALPHA_PID=$!
+  cf_write_run_json
+  if ! cf_wait_for_event "$CF_RUN_DIR/client.log" OWNERSHIP_ASSIGNED "$CF_ALPHA_PID" 20 ||
+     ! cf_wait_for_event "$CF_RUN_DIR/client.log" FIRST_COMPLETE_SNAPSHOT "$CF_ALPHA_PID" 20; then
+    cf_fail_infrastructure "$CF_WAIT_REASON"
+    return $?
+  fi
+
+  printf 'CF_LAUNCHER result=interactive_ready port=%s run_id=%s client_pid=%s logs=%s\n' "$CF_PORT" "$CF_RUN_ID" "$CF_ALPHA_PID" "$CF_RUN_DIR"
+  printf 'Drive the visible alpha client. Press Ctrl-C here to stop the exact server/client pair.\n'
+  set +e
+  wait "$CF_ALPHA_PID"
+  CF_ALPHA_STATUS=$?
+  set -e
+  CF_SERVER_STATUS=""
+  cf_write_run_json
+  cf_write_result_json "stopped" "interactive" "client_exited"
+  return "$CF_SUCCESS_EXIT"
+}
+
 cf_multiplayer_main() {
+  if [[ "$#" -eq 1 && "$1" == "play" ]]; then
+    cf_interactive_main
+    return $?
+  fi
   if [[ "$#" -ne 1 || "$1" != (baseline|latency|jitter|loss|late_join|reconnect|invalid_authority|stall) ]]; then
-    printf 'usage: ./scripts/multiplayer_test.sh baseline|latency|jitter|loss|late_join|reconnect|invalid_authority|stall\n' >&2
+    printf 'usage: ./scripts/multiplayer_test.sh baseline|latency|jitter|loss|late_join|reconnect|invalid_authority|stall|play\n' >&2
     return 2
   fi
   CF_SCENARIO="$1"

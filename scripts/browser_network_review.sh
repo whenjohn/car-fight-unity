@@ -155,6 +155,13 @@ if ! wait_for_pattern "$server_log" 'event=OWNERSHIP_ASSIGNED.*name=bravo' "$ser
   printf 'CF_BROWSER_REVIEW status=failed reason=browser_not_connected run_dir=%s\n' "$run_dir" >&2
   exit 1
 fi
+if [[ -z "${console_pid:-}" ]] ||
+   ! wait_for_pattern "$native_log" 'event=INPUT_SENT.*name=alpha' "$native_pid" 300 ||
+   ! wait_for_pattern "$run_dir/browser-console.log" 'event=INPUT_SENT.*name=bravo' "$browser_pid" 300; then
+  cleanup_partial
+  printf 'CF_BROWSER_REVIEW status=failed reason=gameplay_input_not_verified run_dir=%s\n' "$run_dir" >&2
+  exit 1
+fi
 
 {
   printf 'SERVER_PID=%q\n' "$server_pid"
@@ -164,5 +171,5 @@ fi
   printf 'RUN_DIR=%q\n' "$run_dir"
 } > "$state_file"
 
-printf 'CF_BROWSER_REVIEW status=ready clients=2 run_dir=%s\n' "$run_dir"
+printf 'CF_BROWSER_REVIEW status=ready clients=2 ownership=verified input=verified run_dir=%s\n' "$run_dir"
 printf 'CF_BROWSER_REVIEW stop=./scripts/browser_network_review.sh\ stop\n'

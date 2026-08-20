@@ -1,14 +1,13 @@
 {
   "dependencies": {
     "com.cakeslice.fishy-webrtc": {
-      "version": "https://github.com/whenjohn/FishyWebRTC.git#f11c82d657c515945027b091f1a7d08d38763eb0",
+      "version": "file:FishyWebRTC",
       "depth": 0,
-      "source": "git",
+      "source": "embedded",
       "dependencies": {
         "com.unity.webrtc": "https://github.com/whenjohn/com.unity.webrtc.git#ac2faeacd74b5ac8c76be70308bd81520fe4995c",
         "com.unity.nuget.newtonsoft-json": "3.0.2"
-      },
-      "hash": "f11c82d657c515945027b091f1a7d08d38763eb0"
+      }
     },
     "com.firstgeargames.fishnet": {
       "version": "https://github.com/FirstGearGames/FishNet.git?path=Assets/FishNet#4.7.2",

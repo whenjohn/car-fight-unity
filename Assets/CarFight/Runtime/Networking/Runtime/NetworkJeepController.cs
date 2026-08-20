@@ -135,6 +135,7 @@ namespace CarFight.Networking.Runtime
         public uint ReplayCount => replayCount;
         public float MaximumRawError => maximumRawError;
         public float MaximumVisualCorrection => maximumVisualCorrection;
+        public float BrakeSkidAmount { get; private set; }
 
         private void Awake()
         {
@@ -161,6 +162,7 @@ namespace CarFight.Networking.Runtime
             localSequence = 0;
             hasAcceptedInput = false;
             lastAcceptedSequence = 0;
+            BrakeSkidAmount = 0f;
             driveState = LocalDriveState.Initial;
             localPredictedContactTick = TimeManager.UNSET_TICK;
             localPredictedContactVelocity = Vector3.zero;
@@ -172,6 +174,7 @@ namespace CarFight.Networking.Runtime
         {
             body.linearVelocity = Vector3.zero;
             body.angularVelocity = Vector3.zero;
+            BrakeSkidAmount = 0f;
             driveState = LocalDriveState.Initial;
         }
 
@@ -407,6 +410,7 @@ namespace CarFight.Networking.Runtime
                 grounded,
                 (float)TimeManager.TickDelta);
             driveState = result.State;
+            BrakeSkidAmount = result.Command.BrakeSkidAmount;
             predictionBody.Velocity(FollowController.ComposeDriveVelocity(
                 driveState.PlanarVelocity,
                 velocity.y));

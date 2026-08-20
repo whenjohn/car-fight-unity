@@ -1,6 +1,6 @@
 {
   "dependencies": {
-    "com.cakeslice.fishy-webrtc": "https://github.com/whenjohn/FishyWebRTC.git#f11c82d657c515945027b091f1a7d08d38763eb0",
+    "com.cakeslice.fishy-webrtc": "file:FishyWebRTC",
     "com.firstgeargames.fishnet": "https://github.com/FirstGearGames/FishNet.git?path=Assets/FishNet#4.7.2",
     "com.unity.inputsystem": "1.20.0",
     "com.unity.render-pipelines.universal": "17.3.0",
