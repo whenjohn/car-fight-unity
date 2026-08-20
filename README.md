@@ -1,8 +1,15 @@
 # Car Fight Unity
 
-A clean Unity-native reconstruction of Car Fight. The Godot project remains the
-behavioral reference; this repository ports its proven game rules and tests
-without carrying over Godot scenes, nodes, RPCs, or package architecture.
+> **Project status:** Active development returned to the Godot repository on
+> 2026-08-19. This Unity-native reconstruction is preserved as an engine,
+> workflow, rendering, and multiplayer investigation. Do not continue the port
+> unless a later explicit decision supersedes
+> [the return-to-Godot decision](docs/RETURN_TO_GODOT.md).
+
+This repository reconstructed part of Car Fight without carrying over Godot
+scenes, nodes, RPCs, or package architecture. Its accepted native multiplayer
+evidence remains useful, while its mixed native/browser transport gate is not
+reproducible from tracked source.
 
 ## Foundation
 
@@ -37,21 +44,23 @@ The Codex MCP server is named `unity_car_fight`. It can run alongside the
 separate `unity_fullscreen_spike` server; each server targets its own absolute
 project path. Restart Codex after changing MCP configuration.
 
-## Migration order
+## Historical migration order
 
 1. Lock down FOLLOW behavior as pure C#. *(complete)*
 2. Add a local Jeep, camera, ground, and input adapter. *(complete)*
 3. Prove a native authoritative server with two clients, prediction,
-   reconciliation, latency, late join, and reconnect.
-4. Port the remaining driving, collision, course, combat, and presentation
-   behavior in focused tested slices.
+   reconciliation, latency, late join, and reconnect. *(native proof complete)*
+4. Prove the mixed native/browser transport. *(stopped: not reproducible from
+   tracked source)*
+5. Port the remaining driving, collision, course, combat, and presentation
+   behavior. *(cancelled by the engine decision)*
 
 See [docs/GODOT_REFERENCE.md](docs/GODOT_REFERENCE.md) and the shared `.ai/`
 project context for the evidence and decision trail.
 
-Gate 2 is currently specified in
-[docs/MULTIPLAYER_ACCEPTANCE.md](docs/MULTIPLAYER_ACCEPTANCE.md). The
-accepted networking comparison and FishNet selection are recorded in
+The historical Gate 2 acceptance contract is preserved in
+[docs/MULTIPLAYER_ACCEPTANCE.md](docs/MULTIPLAYER_ACCEPTANCE.md). The accepted
+native networking comparison and FishNet selection are recorded in
 [docs/NETWORKING_COMPARISON.md](docs/NETWORKING_COMPARISON.md).
-The ordered implementation checkpoints and immediate coding boundary are in
+The now-superseded implementation checkpoints are in
 [docs/GATE2_IMPLEMENTATION_PLAN.md](docs/GATE2_IMPLEMENTATION_PLAN.md).
